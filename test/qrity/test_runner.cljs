@@ -1,6 +1,7 @@
 (ns qrity.test-runner
   (:require [cljs.test :as test]
-            [qrity.encode-test]))
+            [qrity.encode-test]
+            [qrity.render-test]))
 
 (defmethod test/report [:cljs.test/default :end-run-tests]
   [summary]
@@ -14,6 +15,8 @@
 
 (defn -main
   [& _]
-  (test/run-tests (test/empty-env) 'qrity.encode-test))
+  (test/run-tests (test/empty-env)
+                  'qrity.encode-test
+                  'qrity.render-test))
 
 (set! *main-cli-fn* -main)

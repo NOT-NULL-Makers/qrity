@@ -1,16 +1,163 @@
 # QRity
 
-QRity is a planned, from-scratch QR Code generator for Clojure and ClojureScript.
+QRity is an experimental, from-scratch QR Code generator for Clojure and ClojureScript.
 The core will be semantically pure: the same immutable input value must produce the
 same immutable symbol value without I/O, mutable global state, platform-specific image
 APIs, or a QR encoding dependency. Shared `.cljc` code is the preferred starting
 hypothesis where the two runtimes have reliably equivalent semantics; portability does
 not require forcing every implementation detail into one shared namespace.
 
-This repository now contains the executable Phase 0 pipeline skeleton. It can validate
-and analyze a fixed Version 1-M Numeric request, then deliberately fails at the first
-unimplemented stage. It does not yet produce a QR symbol. The work remains experimental:
-each later stage is implemented only when its rules are traceable and testable.
+This repository now contains a complete fixed Version 1-M Numeric vertical slice. It
+validates 1–34 ASCII digits, executes all seven ISO/IEC 18004 Clause 7.1 stages, and
+returns a fully resolved immutable 21×21 module matrix. The implementation remains
+experimental: automatic choices, other versions and modes, bundled image/DOM adapters, and
+independent decoder interoperability are not yet implemented or evidenced.
+
+## Generate a QR Code
+
+The public entry point for the currently supported profile is
+`qrity.encode/encode-numeric-v1-m`. It accepts a string containing 1–34 ASCII digits:
+
+```clojure
+(require '[qrity.encode :as qr])
+
+(def result
+  (qr/encode-numeric-v1-m "8675309"))
+
+(def symbol (:symbol result))
+(def modules (:matrix symbol))
+
+(select-keys symbol
+             [:version :error-correction-level :mask-reference])
+;; => {:version 1, :error-correction-level :m, :mask-reference 2}
+
+[(count modules) (count (first modules))]
+;; => [21 21]
+```
+
+`modules` is an immutable vector of 21 row vectors. Each cell is `1` for a dark
+module or `0` for a light module, with `[0 0]` at the top-left of the symbol. The
+matrix is the generated QR Code; QRity does not yet include an image or DOM renderer.
+The surrounding four-module quiet zone is deliberately not part of the matrix and
+must be added by a renderer.
+
+The complete value returned by `encode-numeric-v1-m` also contains the intermediate
+results of all seven encoding stages. Use `(:symbol result)` when only the finished
+symbol is needed, or inspect `result` while studying and testing the pipeline.
+
+### Terminal Unicode
+
+`qrity.render/render-unicode` produces a string suitable for a typical monospace
+terminal. It uses two full-block characters for each dark module and two spaces for
+each light module, making the modules approximately square rather than tall:
+
+```clojure
+(require '[qrity.render :as render])
+
+(println (render/render-unicode modules))
+```
+
+From the `qrity/` directory, the complete example can be run directly without
+starting an interactive REPL:
+
+```sh
+clojure -M -e \
+  "(require '[qrity.encode :as qr] '[qrity.render :as render]) \
+   (-> (qr/encode-numeric-v1-m \"8675309\") \
+       (get-in [:symbol :matrix]) \
+       render/render-unicode \
+       println)"
+```
+
+The renderer includes the four-module quiet zone by default. It is pure and shared
+between Clojure and ClojureScript: it returns the string but does not print it.
+Pass an explicit non-negative quiet-zone width as the second argument when needed:
+
+```clojure
+(render/render-unicode modules 2)
+```
+
+Use the default width for normal QR output. A narrower quiet zone is mainly useful
+for debugging or fitting a symbol into a constrained terminal display.
+
+This repository does not yet contain a `shadow-cljs.edn` or a Shadow CLJS dependency,
+so it intentionally does not claim a project-local Shadow build command. When QRity's
+`src` directory is on an existing Shadow project's source path, start its standalone
+Node REPL with:
+
+```sh
+npx shadow-cljs node-repl
+```
+
+Then evaluate the two `require` forms and rendering expression shown above at the
+ClojureScript prompt. The `clojure -M:cljs-test` command remains the configured
+project-local way to compile and exercise the shared implementation on Node.
+
+### Clojure
+
+From this repository, start a REPL with `clojure -M`, then evaluate the example above.
+The following small adapter turns the module matrix into an SVG with the required
+four-module quiet zone:
+
+```clojure
+(defn matrix->svg
+  ([matrix]
+   (matrix->svg matrix 8 4))
+  ([matrix scale quiet-zone]
+   (let [module-count (+ (count matrix) (* 2 quiet-zone))
+         pixel-count (* scale module-count)
+         dark-modules
+         (for [row (range (count matrix))
+               column (range (count matrix))
+               :when (= 1 (get-in matrix [row column]))]
+           (str "<rect x=\"" (* scale (+ quiet-zone column))
+                "\" y=\"" (* scale (+ quiet-zone row))
+                "\" width=\"" scale
+                "\" height=\"" scale
+                "\"/>"))]
+     (str "<svg xmlns=\"http://www.w3.org/2000/svg\""
+          " width=\"" pixel-count "\" height=\"" pixel-count "\""
+          " viewBox=\"0 0 " pixel-count " " pixel-count "\""
+          " shape-rendering=\"crispEdges\">"
+          "<rect width=\"100%\" height=\"100%\" fill=\"white\"/>"
+          "<g fill=\"black\">" (apply str dark-modules) "</g>"
+          "</svg>"))))
+
+(spit "qr.svg" (matrix->svg modules))
+```
+
+The SVG conversion is an example boundary adapter, not part of QRity's encoding API.
+Avoid resizing its output with interpolation or removing the quiet zone.
+
+### ClojureScript
+
+The encoding call and the `matrix->svg` function above use only shared
+Clojure/ClojureScript forms. Require the same `.cljc` namespace from a ClojureScript
+source file:
+
+```clojure
+(ns example.core
+  (:require [qrity.encode :as qr]))
+
+(def result
+  (qr/encode-numeric-v1-m "8675309"))
+
+(def modules
+  (get-in result [:symbol :matrix]))
+
+;; In a browser, after defining matrix->svg as above:
+(set! (.-innerHTML (.getElementById js/document "qr"))
+      (matrix->svg modules))
+```
+
+The host page needs a target element such as `<div id="qr"></div>`. A Node program
+can write the same SVG string with its chosen filesystem adapter. Ensure the build
+includes this repository's `src` directory; QRity is not yet published as a library.
+
+Unsupported payloads fail explicitly. At present, letters, whitespace, non-ASCII
+digits, empty strings, and strings longer than 34 digits are rejected. Version,
+error-correction level, and mask selection are fixed to Version 1, level M, and mask
+reference 2.
 
 ## Goals
 
@@ -59,22 +206,30 @@ The shared `.cljc` implementation currently provides:
 - a pure whole-payload classifier for the least sufficient single mode among Numeric,
   Alphanumeric, and default-ECI Byte, with non-ISO/IEC 8859-1 text reported as
   unsupported; this is not yet a segment planner or new encoding capability;
-- executable specs for the fixed request, Numeric payload, stage trace, bits,
-  codewords, Version 1 coordinates, and a vector-backed 21×21 working matrix;
-- all seven Clause 7.1 stage functions in normative order;
-- a working data-analysis stage that accepts 1–34 ASCII digits, preserves leading
-  zeros, and produces exactly one Numeric segment;
-- an implemented-prefix runner for development and inspection; and
-- structured `ex-info` failures for invalid requests, invalid stage state, and each
-  unimplemented stage.
+- executable specs for every fixed-profile stage, including bits, codewords, blocks,
+  placement coordinates, construction matrices, and the final binary matrix;
+- all seven Clause 7.1 stage functions in normative order, accepting 1–34 ASCII
+  digits and preserving leading zeros in one Numeric segment;
+- Numeric mode/count/group packing, terminator handling, byte alignment, and exact
+  Version 1-M pad-codeword filling;
+- GF(256) arithmetic, generated Reed–Solomon polynomials, and the Version 1-M
+  single-block ten-codeword parity;
+- a 208-bit final message, Version 1 function patterns and placement traversal,
+  pinned mask reference `2`, duplicated Version 1-M format information, and a fully
+  resolved 21×21 `0`/`1` matrix;
+- an inspectable final symbol containing version, error-correction level, mask,
+  segment metadata, and the matrix;
+- a pure shared terminal renderer with full-block modules, whitespace, and a
+  four-module quiet zone; and
+- structured `ex-info` failures for invalid requests and invalid stage state.
 
 The current standards references and unresolved Annex I mask conflict are recorded in
 the [standards ledger](docs/standards-ledger.md).
 
-`encode-numeric-v1-m` intentionally reaches data encoding and throws
-`:qrity/error :not-implemented`; returning a matrix at this point would be a defect.
-The shared JVM and Node-hosted ClojureScript tests include generated payloads and run
-with:
+`encode-numeric-v1-m` returns the complete stage state; its `:symbol` entry is the
+fixed-profile result. It does not choose a version, error-correction level, mode, or
+mask. The shared JVM and Node-hosted ClojureScript tests include generated payloads,
+stage invariants, and the Annex I.2 vector and run with:
 
 ```sh
 clojure -M:test
@@ -100,9 +255,12 @@ in adapters, not in the encoding namespaces.
 The primary source currently in this repository is the
 [clean ISO/IEC 18004:2015 export](<resources/docs/ISO_IEC 18004_2015, Third Edition_ Information technology - -- ISO_IEC -- Third, 2015 -- Multiple_ Distributed through American National Standards__isbn13 9789267109657.pdf>).
 An [OCR-derived copy](resources/docs/ISO%20IEC%2018004%202015%20Standard_QR-code_ocr.pdf)
-is also present and can be useful as a secondary search aid. The clean export has a
-substantially better text layer, but dense tables, formulas, and bit strings still
-require page-image and independent checks before they become project constants.
+is also present and can be useful as a secondary search aid. A
+[searchable text extraction](docs/iso-iec-18004-2015.txt) of the clean PDF is included
+for repository search; it is byte-for-byte identical to the previously prepared
+`/tmp/qrity-iso-clean.txt` extraction. The clean PDF remains authoritative. Dense
+tables, formulas, figures, and bit strings still require page-image and independent
+checks before they become project constants.
 
 Every standards-derived constant or rule must carry a nearby clause/table reference
 in a research note, test name, or source comment. The standard itself remains the
@@ -607,7 +765,7 @@ Exit evidence: the pipeline order, implemented prefix, and value shapes are exec
 and inspectable; each unimplemented obligation fails explicitly; and every stage has a
 standards-ledger entry.
 
-### Phase 1 — working Version 1-M Numeric vertical slice
+### Phase 1 — working Version 1-M Numeric vertical slice (core implemented)
 
 Implement in pipeline order, adding only the supporting arithmetic needed by the next
 stage:
@@ -628,6 +786,11 @@ small calculations.
 Exit evidence: intermediate values and final modules match independently verified
 fixtures; at least two independent decoders recover the Numeric payload in both
 Clojure and ClojureScript.
+
+Current status: the pure core, shared specs, generated properties, Annex I.2 data,
+parity, format, and final-matrix fixtures, and JVM/Node parity are implemented.
+The two-decoder interoperability evidence remains pending, so the Phase 1 exit evidence
+is not yet complete.
 
 ### Phase 2 — Numeric mode across ordinary QR
 
@@ -656,7 +819,7 @@ interoperability matrix has no unexplained failures.
 ### Phase 4 — stable Numeric API, renderers, and release evidence
 
 - Stabilize the smallest useful pure API.
-- Add pure render representations and opt-in platform adapters.
+- Add additional pure render representations and opt-in platform adapters.
 - Publish the verified supported subset, unsupported features, test matrix, benchmark
   methodology, and an explicit statement that the Numeric-only release makes no
   ISO/IEC 18004 conformance claim.

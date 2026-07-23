@@ -1,5 +1,8 @@
 (ns qrity.encode
   (:require [clojure.spec.alpha :as s]
+            [qrity.bits :as bits]
+            [qrity.matrix :as matrix]
+            [qrity.reed-solomon :as reed-solomon]
             [qrity.spec :as qspec]))
 
 (def clause-7-1-stage-order
@@ -9,7 +12,7 @@
   (zipmap clause-7-1-stage-order (range 1 8)))
 
 (defn numeric-v1-m-request
-  "Builds the only request shape supported by the Phase 0 walkthrough.
+  "Builds the only request shape supported by the fixed Phase 1 profile.
 
   Mask reference 2 is the `010` selected in ISO/IEC 18004:2015 Annex I.2,
   Step 4 and used by its displayed format arithmetic. One Step 5 sentence says
@@ -55,13 +58,15 @@
 
   Validates the complete fixed request and preserves the digit string, including
   leading zeros, in one explicit Numeric segment."
-  [{:keys [request completed-stages]}]
-  (when-not (= [] completed-stages)
+  [{:keys [request completed-stages] :as state}]
+  (when-not (s/valid? ::qspec/initial-state state)
     (fail! :invalid-stage-state
-           "Data analysis must be the first completed stage"
+           "Invalid input state for data analysis"
            {:stage :data-analysis
             :stage-index 1
-            :completed-stages completed-stages}))
+            :completed-stages completed-stages
+            :explain-data
+            (s/explain-data ::qspec/initial-state state)}))
   (when-not (s/valid? ::qspec/request request)
     (invalid-request! request))
   {:request request
@@ -69,43 +74,123 @@
                :digits (:payload request)}]
    :completed-stages [:data-analysis]})
 
-(defn- not-implemented!
-  [stage state]
-  (fail! :not-implemented
-         (str "Clause 7.1 stage is not implemented: " (name stage))
-         {:stage stage
-          :stage-index (stage-index stage)
-          :completed-stages (:completed-stages state)}))
+(defn- require-stage-state!
+  [stage expected-stages state state-spec]
+  (when-not (and (= expected-stages (:completed-stages state))
+                 (s/valid? state-spec state))
+    (fail! :invalid-stage-state
+           (str "Invalid input state for " (name stage))
+           {:stage stage
+            :stage-index (stage-index stage)
+            :completed-stages (:completed-stages state)
+            :explain-data (s/explain-data state-spec state)})))
 
 (defn encode-data
-  "Clause 7.1 stage 2 placeholder."
+  "Clause 7.1 stage 2 for fixed Version 1-M Numeric data codewords."
   [state]
-  (not-implemented! :data-encoding state))
+  (require-stage-state! :data-encoding
+                        [:data-analysis]
+                        state
+                        ::qspec/analyzed-state)
+  (let [digits (get-in state [:segments 0 :digits])
+        segment-bits (bits/numeric-segment-bits digits)
+        data-codewords
+        (bits/pad-data-codewords
+         segment-bits
+         qspec/version-1-m-data-codeword-count)]
+    (assoc state
+           :segment-bits segment-bits
+           :data-bits (bits/codewords->bits data-codewords)
+           :data-codewords data-codewords
+           :completed-stages [:data-analysis :data-encoding])))
 
 (defn add-error-correction
-  "Clause 7.1 stage 3 placeholder."
+  "Clause 7.1 stage 3 for the single Version 1-M Reed–Solomon block."
   [state]
-  (not-implemented! :error-correction-coding state))
+  (require-stage-state! :error-correction-coding
+                        [:data-analysis :data-encoding]
+                        state
+                        ::qspec/encoded-state)
+  (let [data-codewords (:data-codewords state)
+        error-correction-codewords
+        (reed-solomon/error-correction-codewords
+         data-codewords
+         qspec/version-1-m-error-correction-codeword-count)]
+    (assoc state
+           :error-correction-codewords error-correction-codewords
+           :blocks [{:data data-codewords
+                     :error-correction error-correction-codewords}]
+           :completed-stages
+           [:data-analysis :data-encoding :error-correction-coding])))
 
 (defn construct-final-message
-  "Clause 7.1 stage 4 placeholder."
+  "Clause 7.1 stage 4; Version 1-M has one block and no remainder bits."
   [state]
-  (not-implemented! :final-message-construction state))
+  (require-stage-state!
+   :final-message-construction
+   [:data-analysis :data-encoding :error-correction-coding]
+   state
+   ::qspec/error-corrected-state)
+  (let [message-codewords
+        (into (:data-codewords state)
+              (:error-correction-codewords state))]
+    (assoc state
+           :message-codewords message-codewords
+           :message-bits (bits/codewords->bits message-codewords)
+           :completed-stages
+           (subvec clause-7-1-stage-order 0 4))))
 
 (defn place-modules
-  "Clause 7.1 stage 5 placeholder."
+  "Clause 7.1 stage 5 for Version 1 function patterns and message placement."
   [state]
-  (not-implemented! :module-placement state))
+  (require-stage-state! :module-placement
+                        (subvec clause-7-1-stage-order 0 4)
+                        state
+                        ::qspec/final-message-state)
+  (let [{:keys [matrix data-coordinates]}
+        (matrix/place-data (matrix/function-matrix)
+                           (:message-bits state))]
+    (assoc state
+           :matrix matrix
+           :data-coordinates data-coordinates
+           :completed-stages
+           (subvec clause-7-1-stage-order 0 5))))
 
 (defn apply-data-mask
-  "Clause 7.1 stage 6 placeholder."
+  "Clause 7.1 stage 6 for pinned mask reference 2 (column mod 3 = 0)."
   [state]
-  (not-implemented! :data-masking state))
+  (require-stage-state! :data-masking
+                        (subvec clause-7-1-stage-order 0 5)
+                        state
+                        ::qspec/placed-state)
+  (assoc state
+         :matrix (matrix/apply-mask-2 (:matrix state))
+         :completed-stages
+         (subvec clause-7-1-stage-order 0 6)))
 
 (defn add-format-and-version-information
-  "Clause 7.1 stage 7 placeholder."
+  "Clause 7.1 stage 7 for Version 1-M and mask 2.
+
+  Version 1 has no version-information field."
   [state]
-  (not-implemented! :format-and-version-information state))
+  (require-stage-state!
+   :format-and-version-information
+   (subvec clause-7-1-stage-order 0 6)
+   state
+   ::qspec/masked-state)
+  (let [final-matrix
+        (-> (:matrix state)
+            (matrix/add-format-information 2)
+            matrix/final-bit-matrix)
+        symbol {:version 1
+                :error-correction-level :m
+                :mask-reference 2
+                :segments (:segments state)
+                :matrix final-matrix}]
+    (assoc state
+           :matrix final-matrix
+           :symbol symbol
+           :completed-stages clause-7-1-stage-order)))
 
 (def clause-7-1-stages
   [analyze-data
@@ -117,7 +202,7 @@
    add-format-and-version-information])
 
 (def implemented-stage-count
-  1)
+  7)
 
 (defn initial-state
   [request]
@@ -133,15 +218,12 @@
           (take implemented-stage-count clause-7-1-stages)))
 
 (defn walkthrough-numeric-v1-m
-  "Runs the implemented Phase 0 walkthrough for a Numeric digit string."
+  "Runs the complete fixed Version 1-M Numeric walkthrough."
   [digits]
   (run-implemented-prefix (numeric-v1-m-request digits)))
 
 (defn run-complete-pipeline
-  "Attempts every Clause 7.1 stage.
-
-  During Phase 0 this intentionally throws structured stage-not-implemented data
-  at stage 2 rather than returning a plausible but invalid QR symbol."
+  "Runs every Clause 7.1 stage for the fixed supported profile."
   [request]
   (reduce (fn [state stage]
             (stage state))
@@ -149,10 +231,7 @@
           clause-7-1-stages))
 
 (defn encode-numeric-v1-m
-  "Attempts the fixed Numeric pipeline.
-
-  This is not a working encoder in Phase 0; it currently fails explicitly at
-  data encoding."
+  "Returns the complete fixed Version 1-M Numeric stage state and symbol."
   [digits]
   (run-complete-pipeline (numeric-v1-m-request digits)))
 
@@ -160,10 +239,38 @@
   :args (s/cat :state map?)
   :ret ::qspec/analyzed-state)
 
+(s/fdef encode-data
+  :args (s/cat :state ::qspec/analyzed-state)
+  :ret ::qspec/encoded-state)
+
+(s/fdef add-error-correction
+  :args (s/cat :state ::qspec/encoded-state)
+  :ret ::qspec/error-corrected-state)
+
+(s/fdef construct-final-message
+  :args (s/cat :state ::qspec/error-corrected-state)
+  :ret ::qspec/final-message-state)
+
+(s/fdef place-modules
+  :args (s/cat :state ::qspec/final-message-state)
+  :ret ::qspec/placed-state)
+
+(s/fdef apply-data-mask
+  :args (s/cat :state ::qspec/placed-state)
+  :ret ::qspec/masked-state)
+
+(s/fdef add-format-and-version-information
+  :args (s/cat :state ::qspec/masked-state)
+  :ret ::qspec/final-state)
+
 (s/fdef run-implemented-prefix
   :args (s/cat :request map?)
-  :ret ::qspec/analyzed-state)
+  :ret ::qspec/final-state)
 
 (s/fdef walkthrough-numeric-v1-m
   :args (s/cat :digits any?)
-  :ret ::qspec/analyzed-state)
+  :ret ::qspec/final-state)
+
+(s/fdef encode-numeric-v1-m
+  :args (s/cat :digits any?)
+  :ret ::qspec/final-state)
