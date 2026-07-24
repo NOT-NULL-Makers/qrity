@@ -181,16 +181,6 @@
       (is (= :invalid-version (:qrity/error data)))
       (is (= version (:version data))))))
 
-(deftest generalized-templates-cannot-enter-the-fixed-version-one-placement-api
-  (let [version-2 (matrix/function-matrix 2)]
-    (doseq [thunk [#(matrix/data-coordinates version-2)
-                   #(matrix/place-data version-2
-                                       (vec (repeat 247 0)))]
-            :let [data (exception-data thunk)]]
-      (is (= :unsupported-matrix-dimension (:qrity/error data)))
-      (is (= 21 (:expected-dimension data)))
-      (is (= 25 (:actual-dimension data))))))
-
 (deftest function-matrix-spec-rejects-count-preserving-coordinate-corruption
   (let [valid (matrix/function-matrix 7)
         corrupted

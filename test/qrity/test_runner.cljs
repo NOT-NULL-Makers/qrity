@@ -4,6 +4,7 @@
             [qrity.matrix-test]
             [qrity.message-test]
             [qrity.parameters-test]
+            [qrity.placement-test]
             [qrity.render-test]
             [qrity.segment-test]))
 
@@ -24,6 +25,7 @@
                   'qrity.matrix-test
                   'qrity.message-test
                   'qrity.parameters-test
+                  'qrity.placement-test
                   'qrity.render-test
                   'qrity.segment-test))
 

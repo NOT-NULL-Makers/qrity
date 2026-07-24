@@ -233,56 +233,224 @@
                :selected (s/cat :version ::parameters/version))
   :ret ::function-matrix)
 
-(defn- require-version-1-matrix!
+(defn- inferred-version
   [matrix]
-  (when-not (and (vector? matrix)
-                 (= version-1-size (count matrix))
-                 (every? #(and (vector? %)
-                               (= version-1-size (count %)))
-                         matrix))
+  (when (vector? matrix)
+    (let [dimension (count matrix)]
+      (when (and (<= 21 dimension 177)
+                 (zero? (mod (- dimension 17) 4)))
+        (quot (- dimension 17) 4)))))
+
+(defn- require-function-matrix!
+  [matrix]
+  (when-not (function-matrix? matrix)
     (throw
      (ex-info
-      "This placement API accepts only a Version 1 construction matrix"
-      {:qrity/error :unsupported-matrix-dimension
-       :expected-dimension version-1-size
+      "Placement requires an exact canonical function-pattern template"
+      {:qrity/error :invalid-function-matrix
+       :reason :noncanonical-template
        :actual-dimension (when (vector? matrix) (count matrix))
        :clause "7.7.3"}))))
 
-(defn data-coordinates
-  "Returns the Clause 7.7.3 Version 1 placement traversal in bit order."
+(defn- traverse-data-coordinates
   [matrix]
-  (require-version-1-matrix! matrix)
-  (loop [right-column 20
-         upward? true
-         coordinates []]
-    (if (< right-column 1)
-      coordinates
-      (let [right-column (if (= right-column 6) 5 right-column)
-            rows (if upward?
-                   (range 20 -1 -1)
-                   (range 0 21))
-            pair-coordinates
-            (for [row rows
-                  column [right-column (dec right-column)]
-                  :when (= :unset (get-in matrix [row column]))]
-              [row column])]
-        (recur (- right-column 2)
-               (not upward?)
-               (into coordinates pair-coordinates))))))
+  (let [dimension (count matrix)]
+    (loop [right-column (dec dimension)
+           upward? true
+           coordinates []]
+      (if (< right-column 1)
+        coordinates
+        (let [right-column (if (= right-column 6) 5 right-column)
+              rows (if upward?
+                     (range (dec dimension) -1 -1)
+                     (range dimension))
+              pair-coordinates
+              (for [row rows
+                    column [right-column (dec right-column)]
+                    :when (= :unset (get-in matrix [row column]))]
+                [row column])]
+          (recur (- right-column 2)
+                 (not upward?)
+                 (into coordinates pair-coordinates)))))))
+
+(defn data-coordinates
+  "Returns the Clause 7.7.3 placement traversal for a canonical template."
+  [matrix]
+  (require-function-matrix! matrix)
+  (traverse-data-coordinates matrix))
+
+(defn bit-vector?
+  [value]
+  (and (vector? value)
+       (pos? (count value))
+       (every? #{0 1} value)))
 
 (defn place-data
+  "Places a complete final-message bit vector into a canonical function template.
+
+  The result is unmasked and still contains unresolved metadata reservations."
   [matrix message-bits]
-  (let [coordinates (data-coordinates matrix)]
+  (require-function-matrix! matrix)
+  (when-not (bit-vector? message-bits)
+    (throw
+     (ex-info
+      "Message bits must be a non-empty vector containing only 0 and 1"
+      {:qrity/error :invalid-message-bits
+       :reason (cond
+                 (not (vector? message-bits)) :not-vector
+                 (empty? message-bits) :empty-bits
+                 :else :invalid-bit)
+       :message-bits message-bits
+       :clause "7.7.3"})))
+  (let [version (inferred-version matrix)
+        coordinates (traverse-data-coordinates matrix)]
     (when-not (= (count coordinates) (count message-bits))
-      (throw (ex-info "Message does not fill the Version 1 encoding region"
-                      {:coordinate-count (count coordinates)
-                       :bit-count (count message-bits)})))
-    {:matrix
-     (reduce (fn [matrix [coordinate bit]]
-               (assoc-in matrix coordinate (if (zero? bit) :light :dark)))
-             matrix
-             (map vector coordinates message-bits))
-     :data-coordinates coordinates}))
+      (throw
+       (ex-info
+        "Message bit count does not fill the selected encoding region"
+        {:qrity/error :message-bit-count-mismatch
+         :version version
+         :expected-count (count coordinates)
+         :actual-count (count message-bits)
+         :coordinate-count (count coordinates)
+         :bit-count (count message-bits)
+         :clause "7.7.3"})))
+    (let [remainder-bit-count
+          (:remainder-bit-count
+           (parameters/ordinary-qr-parameters version :l))]
+      (when (and (pos? remainder-bit-count)
+                 (not-every? zero?
+                             (take-last remainder-bit-count message-bits)))
+        (throw
+         (ex-info
+          "Remainder bits must be zero before data masking"
+          {:qrity/error :invalid-remainder-bits
+           :reason :nonzero-remainder-bit
+           :version version
+           :remainder-bit-count remainder-bit-count
+           :remainder-bits
+           (vec (take-last remainder-bit-count message-bits))
+           :clause "7.7.3"}))))
+    (let [placed-matrix
+          (reduce (fn [matrix [coordinate bit]]
+                    (assoc-in matrix
+                              coordinate
+                              (if (zero? bit) :light :dark)))
+                  matrix
+                  (map vector coordinates message-bits))]
+      (when (some #{:unset} (mapcat identity placed-matrix))
+        (throw
+         (ex-info
+          "Placement left encoding modules unresolved"
+          {:qrity/error :placement-invariant-failure
+           :version version
+           :invariant :unset-modules-remain
+           :clause "7.7.3"})))
+      {:matrix placed-matrix
+       :data-coordinates coordinates})))
+
+(s/def ::message-bits bit-vector?)
+(s/def ::data-coordinate
+  (s/and vector?
+         #(= 2 (count %))
+         #(every? (fn [coordinate]
+                    (and (int? coordinate)
+                         (<= 0 coordinate 176)))
+                  %)))
+(s/def ::data-coordinates
+  (s/coll-of ::data-coordinate :kind vector? :distinct true :min-count 1))
+
+(def placement-keys
+  #{:matrix :data-coordinates})
+
+(defn placed-matrix?
+  [value]
+  (and
+   (vector? value)
+   (let [version (inferred-version value)]
+     (when version
+       (let [template (build-function-matrix version)
+             coordinates (traverse-data-coordinates template)
+             coordinate-set (set coordinates)
+             dimension (count template)]
+         (and
+          (= dimension (count value))
+          (every? #(and (vector? %)
+                        (= dimension (count %)))
+                  value)
+          (not-any? #{:unset} (mapcat identity value))
+          (every?
+           (fn [[row column]]
+             (let [coordinate [row column]
+                   cell (get-in value coordinate)]
+               (if (contains? coordinate-set coordinate)
+                 (#{:light :dark} cell)
+                 (= (get-in template coordinate) cell))))
+           (for [row (range dimension)
+                 column (range dimension)]
+             [row column]))))))))
+
+(defn placement-structure?
+  "Checks self-contained placement shape and canonical reserved cells.
+
+  Use `placement-matches-message-bits?` to verify identity with source bits."
+  [value]
+  (and (map? value)
+       (= placement-keys (set (keys value)))
+       (placed-matrix? (:matrix value))
+       (let [version (inferred-version (:matrix value))
+             template (when version (build-function-matrix version))]
+         (= (:data-coordinates value)
+            (when template (traverse-data-coordinates template))))))
+
+(defn placement-matches-message-bits?
+  "Checks a structurally valid placement against its source message bits."
+  [placement message-bits]
+  (and
+   (placement-structure? placement)
+   (bit-vector? message-bits)
+   (= message-bits
+      (mapv #(case (get-in (:matrix placement) %)
+               :light 0
+               :dark 1)
+            (:data-coordinates placement)))))
+
+(defn placement-request?
+  [{:keys [matrix message-bits]}]
+  (and
+   (function-matrix? matrix)
+   (bit-vector? message-bits)
+   (= (count message-bits)
+      (count (traverse-data-coordinates matrix)))
+   (let [version (inferred-version matrix)
+         remainder-bit-count
+         (:remainder-bit-count
+          (parameters/ordinary-qr-parameters version :l))]
+     (every? zero? (take-last remainder-bit-count message-bits)))))
+
+(s/def ::placed-matrix placed-matrix?)
+(s/def ::placement-structure placement-structure?)
+(s/def ::placement-request
+  (s/and
+   (s/cat :matrix any? :message-bits any?)
+   placement-request?))
+
+(s/fdef data-coordinates
+  :args (s/cat :matrix ::function-matrix)
+  :ret ::data-coordinates
+  :fn (fn [{:keys [args ret]}]
+        (= ret (traverse-data-coordinates (:matrix args)))))
+
+(s/fdef place-data
+  :args ::placement-request
+  :ret ::placement-structure
+  :fn
+  (fn [{:keys [args ret]}]
+    (let [{:keys [matrix message-bits]} args
+          coordinates (:data-coordinates ret)]
+      (and
+       (= coordinates (traverse-data-coordinates matrix))
+       (placement-matches-message-bits? ret message-bits)))))
 
 (defn apply-mask-2
   "Applies data mask reference 010 only to placed encoding modules."
