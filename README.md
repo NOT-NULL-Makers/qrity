@@ -44,6 +44,38 @@ The complete value returned by `encode-numeric-v1-m` also contains the intermedi
 results of all seven encoding stages. Use `(:symbol result)` when only the finished
 symbol is needed, or inspect `result` while studying and testing the pipeline.
 
+### Select a catalogued Numeric version
+
+Phase 2 now includes a standards parameter catalogue for ordinary QR Versions 1–40
+and levels L/M/Q/H. `smallest-numeric-version` accepts a non-empty ASCII-digit string
+and returns the smallest version whose Table 7 capacity fits:
+
+```clojure
+(require '[qrity.parameters :as parameters])
+
+(parameters/smallest-numeric-version
+ "1234567890123456789012345678901234"
+ :m)
+;; => 1
+
+(parameters/smallest-numeric-version
+ "12345678901234567890123456789012345"
+ :m)
+;; => 2
+
+(select-keys (parameters/ordinary-qr-parameters 2 :m)
+             [:version :dimension :data-codeword-count :numeric-capacity])
+;; => {:version 2,
+;;     :dimension 25,
+;;     :data-codeword-count 28,
+;;     :numeric-capacity 63}
+```
+
+These profiles are catalogued and selectable, not yet encodable by the complete
+pipeline. Continue to call `encode-numeric-v1-m` only with 1–34 digits. The selector
+is deliberately isolated so it cannot send an unsupported Version 2–40 request into
+the fixed Version 1-M matrix and message stages.
+
 ### Terminal Unicode
 
 `qrity.render/render-unicode` produces a string suitable for a typical monospace
@@ -267,7 +299,10 @@ The shared `.cljc` implementation currently provides:
 - a deterministic pure Plain PBM raster representation with integral scaling and a
   four-module quiet zone;
 - a verified Babashka compatibility path for the pure fixed-profile encoder and
-  renderers; and
+  renderers;
+- a pure ordinary-QR parameter catalogue covering Version 1–40 dimensions,
+  remainder bits, alignment-center axes, L/M/Q/H data codewords, and Numeric
+  capacities, plus isolated smallest-version selection; and
 - structured `ex-info` failures for invalid requests and invalid stage state.
 
 The current standards references and unresolved Annex I mask conflict are recorded in
@@ -875,6 +910,13 @@ the stated Phase 1 exit evidence without making a conformance claim.
 
 Exit evidence: structural properties cover all required table rows; representative
 Numeric symbols from every version range decode independently.
+
+Current status: batch A is implemented. Tables 1, 7, and E.1 provide the complete
+40-version/160-level parameter catalogue; all printed Numeric capacities are checked
+against an independent Clause 7.4.3 bit calculation, and every smallest-version
+boundary is exercised on JVM and Node. The existing encoder remains fixed to Version
+1-M. Table 9 block-group transcription and aggregate reconciliation are the next
+acceptance gate before multiple-block encoding or interleaving begins.
 
 ### Phase 3 — mask selection and hardening
 

@@ -51,3 +51,17 @@ run.
 | Ordinary QR requires a light quiet zone at least 4X wide on every side | Clauses 6.3.8 and 9.1, printed pp. 17 and 61 (PDF pp. 25 and 69) | PBM border and derived-dimension tests; external decode artifacts pin width 4 | `render-pbm` default and interoperability harness |
 | Plain PBM `P1` maps `1` to black and `0` to white and limits lines to 70 characters | Netpbm Plain PBM specification | Independent PBM parser, polarity, wrapping, and byte-parity tests | Deterministic codec-free raster evidence |
 | Both physical format copies carry the same word in opposite coordinate traversal orders | Clause 7.9.1 Figure 25, printed p. 56 (PDF p. 64) | Page-image inspection, focused placement tests, four-module discriminating experiment, and two external decoders | Primary receives bit 14→0; secondary receives bit 0→14 |
+
+## Phase 2 parameter catalogue
+
+| Fact | Source | Verification | Status/use |
+|---|---|---|---|
+| Ordinary versions are 1–40 with dimension `17 + 4V`; version information begins at V7 | Clause 6; Clause 7.10, printed pp. 58–59 (PDF pp. 66–67) | Exhaustive derived dimension and boundary properties | Derived catalogue projections |
+| Total codewords and remainder bits for V1–40 | Table 1, printed pp. 19–20 (PDF pp. 27–28) | Complete rendered-source transcription review plus exact remainder-band and total-vector tests | Canonical batch-A version facts |
+| Data codewords and Numeric capacities for all 160 Version/L-M-Q-H rows | Table 7, printed pp. 33–36 (PDF pp. 41–44) | Every printed capacity must equal an independent calculation using Table 3 character-count widths and Clause 7.4.3 packing | Canonical batch-A level facts and version selection |
+| Alignment-pattern center axes for V1–40 | Clause 6.3.6; normative Annex E Table E.1, printed pp. 83–84 (PDF pp. 91–92) | Complete rendered-source transcription review; exhaustive length/order/first/last invariants | Catalogued for later matrix work, not yet consumed |
+| Error-correction block groups, including unequal groups | Table 9, printed pp. 38–44 (PDF pp. 46–52); Clause 7.6 | Pending page-batched transcription and reconciliation against all Table 1/7 totals | Next Phase 2 gate; not yet implemented |
+
+Catalogue presence does not mean a profile is encodable. The complete generation
+pipeline remains Version 1-M Numeric/mask 2 until the downstream block, message,
+matrix, metadata, and mask stages are generalized and independently verified.
