@@ -370,7 +370,10 @@ The shared `.cljc` implementation currently provides:
   error-correction interleavers, with strict shortest-first/equal-length contracts;
 - provisional selected-profile Numeric data-codeword and complete codeword-message
   construction across all 160 ordinary version/level profiles, including per-block
-  Reed–Solomon parity and remainder bits; and
+  Reed–Solomon parity and remainder bits;
+- pure Version 1–40 function-pattern templates containing finder/separator/timing/
+  alignment patterns, the fixed dark module, and unresolved format/version metadata
+  reservations; and
 - structured `ex-info` failures for invalid requests and invalid stage state.
 
 The current standards references and unresolved Annex I mask conflict are recorded in
@@ -979,7 +982,7 @@ the stated Phase 1 exit evidence without making a conformance claim.
 Exit evidence: structural properties cover all required table rows; representative
 Numeric symbols from every version range decode independently.
 
-Current status: batches A through C are implemented. Tables 1, 7, 9, and E.1 provide the
+Current status: batches A through D are implemented. Tables 1, 7, 9, and E.1 provide the
 complete 40-version/160-level parameter catalogue. All 160 canonical Table 9
 error-correction/block-count cells and all 288 printed block-group records were
 independently reconciled. Pure data partitioning and separate data/parity interleavers
@@ -988,8 +991,26 @@ terminator/alignment/padding, per-block Reed–Solomon, and exact remainder-bit 
 All 160 profiles are checked against an independent data-bit/padding reference and
 independent zero-syndrome evaluation on JVM, Node, and Babashka. Every supported
 Version 1-M payload length remains byte-identical to the fixed pipeline. The existing
-complete encoder remains fixed to Version 1-M; generalized matrices, alignment
-placement, version/format metadata, and masking remain the next increments.
+complete encoder remains fixed to Version 1-M; generalized message placement,
+version/format metadata values, and masking remain the next increments.
+
+Batch D adds canonical function-pattern/reservation templates for Versions 1–40:
+
+```clojure
+(require '[qrity.matrix :as matrix])
+
+(def version-7-template
+  (matrix/function-matrix 7))
+
+[(count version-7-template)
+ (count (first version-7-template))]
+;; => [45 45]
+```
+
+The matrix uses `:reserved-dark`/`:reserved-light` for resolved function modules,
+`:reserved` for unresolved format/version-information modules, and `:unset` for the
+future encoding region. It excludes the quiet zone and contains no message bits.
+Generalized traversal and placement are intentionally the next separate checkpoint.
 
 ### Phase 3 — mask selection and hardening
 

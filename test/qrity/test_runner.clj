@@ -1,6 +1,7 @@
 (ns qrity.test-runner
   (:require [clojure.test :as test]
             [qrity.encode-test]
+            [qrity.matrix-test]
             [qrity.message-test]
             [qrity.parameters-test]
             [qrity.render-test]
@@ -10,6 +11,7 @@
   [& _]
   (let [{:keys [test fail error]}
         (test/run-tests 'qrity.encode-test
+                        'qrity.matrix-test
                         'qrity.message-test
                         'qrity.parameters-test
                         'qrity.render-test

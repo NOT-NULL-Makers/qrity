@@ -59,12 +59,14 @@ run.
 | Ordinary versions are 1–40 with dimension `17 + 4V`; version information begins at V7 | Clause 6; Clause 7.10, printed pp. 58–59 (PDF pp. 66–67) | Exhaustive derived dimension and boundary properties | Derived catalogue projections |
 | Total codewords and remainder bits for V1–40 | Table 1, printed pp. 19–20 (PDF pp. 27–28) | Complete rendered-source transcription review plus exact remainder-band and total-vector tests | Canonical batch-A version facts |
 | Data codewords and Numeric capacities for all 160 Version/L-M-Q-H rows | Table 7, printed pp. 33–36 (PDF pp. 41–44) | Every printed capacity must equal an independent calculation using Table 3 character-count widths and Clause 7.4.3 packing | Canonical batch-A level facts and version selection |
-| Alignment-pattern center axes for V1–40 | Clause 6.3.6; normative Annex E Table E.1, printed pp. 83–84 (PDF pp. 91–92) | Complete rendered-source transcription review; exhaustive length/order/first/last invariants | Catalogued for later matrix work, not yet consumed |
+| Alignment-pattern center axes for V1–40 | Clause 6.3.6; normative Annex E Table E.1, printed pp. 83–84 (PDF pp. 91–92) | Complete rendered-source transcription review; exhaustive length/order/first/last invariants | Consumed by the Version 1–40 function-pattern templates |
 | Error-correction codeword totals, block counts, and equal/unequal data-block groups | Table 9, printed pp. 38–44 (PDF pp. 46–52) | All 160 canonical total-EC/block-count cells independently transcribed; all 288 printed ordinary group records uniquely consumed; zero Table 1/7/9 conservation discrepancies | Canonical catalogue facts; shortest-first groups and equal EC count per block are derived and exhaustively checked |
 | Data and error-correction interleaving order | Clause 7.6; Version 5-H worked block shape | Independent column-first reference over all 160 layouts; exact unequal V5-H fixture; production per-block Reed–Solomon composition; JVM, Node, and Babashka checks | Provisional pure partition/data-interleave/EC-interleave primitives and selected-profile final-message construction |
 | Numeric character-count bands, terminator, alignment, and padding | Tables 2–3; Clauses 7.4.3, 7.4.9–7.4.10 | Independent test reference across all 160 maximum capacities; pinned V9→V10 and V26→V27 transitions; all 0–4 Terminator lengths | Provisional selected-profile Numeric data-codeword construction |
 | Remainder-bit assembly | Table 1; Clauses 7.6 and 7.7.3 | Exhaustive 0/3/4/7 bands and exact `8 × total-codewords + remainder` lengths | Zero bits appended after the final EC codeword; never treated as codewords |
+| Version 1–40 function-pattern templates | Clauses 6.3.1–6.3.7 and 7.7.2; Figures 3, 12, 25, and 27; Annex E | Exact finder/separator/timing/alignment/fixed-dark and metadata-reservation coordinates; exhaustive Table 1 function/metadata/unset counts; V1/V2/V7/V40 anchors on JVM, Node, and Babashka | Pure pre-placement matrices only; actual metadata values, traversal, placement, masking, and complete symbols remain deferred |
 
-Codeword-message presence does not mean a complete symbol is encodable. The complete
-generation pipeline remains Version 1-M Numeric/mask 2 until matrix construction,
-metadata, masking, and rendering are generalized and independently verified.
+Codeword-message and function-template presence does not mean a complete symbol is
+encodable. The complete generation pipeline remains Version 1-M Numeric/mask 2 until
+traversal/placement, metadata, masking, and rendering are generalized and independently
+verified.
