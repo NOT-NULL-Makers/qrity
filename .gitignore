@@ -2,3 +2,5 @@
 /out/
 /target/
 /.cljs_node_repl/
+__pycache__/
+*.pyc

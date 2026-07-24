@@ -285,13 +285,15 @@
   (let [masked (:masked (states-for "01234567"))
         formatted (matrix/add-format-information (:matrix masked) 2)
         expected [1 0 1 1 1 1 0 0 1 1 1 1 1 0 0]
-        placed-order (vec (reverse expected))
+        least-significant-first (vec (reverse expected))
         cell-bit {:reserved-light 0 :reserved-dark 1}]
     (is (= expected (matrix/format-information-bits 2)))
-    (is (= placed-order
+    ;; ISO/IEC 18004:2015 Figure 25 numbers these two physical
+    ;; coordinate traversals in opposite bit orders.
+    (is (= expected
            (mapv #(cell-bit (get-in formatted %))
                  matrix/primary-format-coordinates)))
-    (is (= placed-order
+    (is (= least-significant-first
            (mapv #(cell-bit (get-in formatted %))
                  matrix/secondary-format-coordinates)))
     (is (= :reserved-dark (get-in formatted [13 8])))))
@@ -302,15 +304,15 @@
 (def annex-i-final-matrix
   (mapv (fn [row]
           (mapv #(- (int %) (int \0)) row))
-        ["111111101101101111111"
+        ["111111100101101111111"
          "100000100111101000001"
          "101110101000001011101"
          "101110101100001011101"
          "101110101011101011101"
          "100000101000101000001"
          "111111101010101111111"
-         "000000000001100000000"
-         "001111110100101111100"
+         "000000001001100000000"
+         "101111100100101111100"
          "000101011010100101100"
          "001000110101010011111"
          "000010000100000111100"

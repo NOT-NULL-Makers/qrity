@@ -34,8 +34,20 @@ Official corrigenda have not yet been checked.
 | 4. Final message construction | Clause 7.6; Table 9 | Implemented: one data block followed by its parity; Version 1 has 26 total codewords and zero remainder bits | Exact 26-codeword / 208-bit length and one-block structure are checked |
 | 5. Module placement | Clauses 6.3 and 7.7; Annex I.2 Figure I.1 | Implemented: Version 1 finder, separator, timing, fixed-dark and format reservations plus the two-column placement traversal | 208 unique coordinates fill every encoding module and preserve every function/reserved cell |
 | 6. Data masking | Clauses 7.8.1–7.8.2; Table 10 | Implemented for pinned mask `010`: toggle encoding modules where column modulo 3 is zero | Exhaustive per-cell confinement test passes; all-candidate scoring remains deferred |
-| 7. Format and version information | Clause 7.9; Table 12; Annex C; Clause 7.10; Annex I.2 | Implemented: algebraic BCH for M/mask `010`, XOR mask, two placements, and no Version 1 version field | `101111001111100`, both placements, fixed dark module, and final Annex I.2 matrix are checked |
+| 7. Format and version information | Clause 7.9.1 and Figure 25; Table 12; Annex C; Clause 7.10; Annex I.2 | Implemented: algebraic BCH for M/mask `010`, XOR mask, primary bit 14→0 placement, secondary bit 0→14 placement, and no Version 1 version field | `101111001111100`, both opposite-orientation placements, fixed dark module, corrected Annex I.2 matrix, and ZBar/OpenCV decoding are checked |
 
 Dense tables, bit strings, and formulas were checked against rendered PDF pages and
 independent calculations before the fixed-profile values above were used. Passing an
-external decoder will be supporting evidence only and remains pending for Phase 1.
+external decoder is supporting evidence only. A 2026-07-24 run decoded five boundary
+payloads emitted through both JVM and Node with ZBar 0.23.93 and OpenCV 4.10.0; it also
+exposed and drove correction of a reversed primary format copy before the successful
+run.
+
+## Rendering and interoperability facts
+
+| Fact | Source | Verification | Use |
+|---|---|---|---|
+| Ordinary QR modules are nominally square and the symbol excludes its quiet zone | Clauses 6.1 and 6.3.1, printed pp. 4–8 (PDF pp. 12–16) | Matrix dimensions and PBM pixel reconstruction tests on JVM/Node | Authoritative bare matrix plus renderer boundary |
+| Ordinary QR requires a light quiet zone at least 4X wide on every side | Clauses 6.3.8 and 9.1, printed pp. 17 and 61 (PDF pp. 25 and 69) | PBM border and derived-dimension tests; external decode artifacts pin width 4 | `render-pbm` default and interoperability harness |
+| Plain PBM `P1` maps `1` to black and `0` to white and limits lines to 70 characters | Netpbm Plain PBM specification | Independent PBM parser, polarity, wrapping, and byte-parity tests | Deterministic codec-free raster evidence |
+| Both physical format copies carry the same word in opposite coordinate traversal orders | Clause 7.9.1 Figure 25, printed p. 56 (PDF p. 64) | Page-image inspection, focused placement tests, four-module discriminating experiment, and two external decoders | Primary receives bit 14→0; secondary receives bit 0→14 |

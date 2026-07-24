@@ -140,8 +140,10 @@
 
 (defn add-format-information
   [matrix mask-reference]
-  (let [least-significant-first
-        (vec (reverse (format-information-bits mask-reference)))
+  (let [most-significant-first
+        (format-information-bits mask-reference)
+        least-significant-first
+        (vec (reverse most-significant-first))
         format-cell (fn [bit]
                       (if (zero? bit)
                         :reserved-light
@@ -151,7 +153,7 @@
             matrix
             (concat (map vector
                          primary-format-coordinates
-                         least-significant-first)
+                         most-significant-first)
                     (map vector
                          secondary-format-coordinates
                          least-significant-first)))))

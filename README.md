@@ -10,8 +10,8 @@ not require forcing every implementation detail into one shared namespace.
 This repository now contains a complete fixed Version 1-M Numeric vertical slice. It
 validates 1–34 ASCII digits, executes all seven ISO/IEC 18004 Clause 7.1 stages, and
 returns a fully resolved immutable 21×21 module matrix. The implementation remains
-experimental: automatic choices, other versions and modes, bundled image/DOM adapters, and
-independent decoder interoperability are not yet implemented or evidenced.
+experimental: automatic choices, other versions and modes, and bundled bitmap/DOM
+adapters are not yet implemented.
 
 ## Generate a QR Code
 
@@ -37,9 +37,8 @@ The public entry point for the currently supported profile is
 
 `modules` is an immutable vector of 21 row vectors. Each cell is `1` for a dark
 module or `0` for a light module, with `[0 0]` at the top-left of the symbol. The
-matrix is the generated QR Code; QRity does not yet include an image or DOM renderer.
-The surrounding four-module quiet zone is deliberately not part of the matrix and
-must be added by a renderer.
+matrix is the authoritative generated QR Code. The surrounding four-module quiet zone
+is deliberately not part of the matrix and must be added by a renderer.
 
 The complete value returned by `encode-numeric-v1-m` also contains the intermediate
 results of all seven encoding stages. Use `(:symbol result)` when only the finished
@@ -79,6 +78,50 @@ Pass an explicit non-negative quiet-zone width as the second argument when neede
 
 Use the default width for normal QR output. A narrower quiet zone is mainly useful
 for debugging or fitting a symbol into a constrained terminal display.
+
+### Plain PBM raster
+
+`render-pbm` produces a deterministic [Plain PBM](https://netpbm.sourceforge.net/doc/pbm.html)
+string without an image-codec dependency. It uses eight square pixels per module and
+the required four-module quiet zone by default:
+
+```clojure
+(spit "qr.pbm" (render/render-pbm modules)
+      :encoding "UTF-8")
+```
+
+The same pure function is available from ClojureScript; use the host runtime's
+filesystem or download adapter to write the returned string. Lower-level experiments
+can set an explicit positive integral scale and non-negative quiet zone:
+
+```clojure
+(render/render-pbm modules 8 4)
+```
+
+Normal QR output should retain quiet-zone width 4 or greater. The renderer emits
+normal polarity (`1` is dark and `0` is light), literal LF separators, a trailing
+newline, and a row-major raster wrapped at the Plain PBM 70-character limit.
+
+### Repeatable runtime scripts
+
+The one-line generation probes are kept as scripts so they can be reused without
+repeating shell quoting. Each accepts one or more `PAYLOAD OUTPUT.pbm` pairs:
+
+```sh
+scripts/generate-clojure.sh 8675309 /tmp/qrity-clojure.pbm
+scripts/generate-clojurescript.sh 8675309 /tmp/qrity-clojurescript.pbm
+scripts/generate-babashka.sh 8675309 /tmp/qrity-babashka.pbm
+```
+
+All three invoke the same shared `.cljc` encoder and PBM renderer. The ClojureScript
+script compiles the shared source and runs it on Node; the generated file is the
+runtime result rather than a JVM substitute.
+
+Babashka 1.12.218 successfully encoded the leading-zero payload `00000001`. Its
+54,604-byte PBM was byte-identical to the JVM Clojure and compiled ClojureScript
+artifacts, and both ZBar and OpenCV decoded the exact payload. The full property test
+suites remain the JVM and Node-hosted ClojureScript commands documented below; the
+Babashka script is a pure-API compatibility smoke check.
 
 This repository does not yet contain a `shadow-cljs.edn` or a Shadow CLJS dependency,
 so it intentionally does not claim a project-local Shadow build command. When QRity's
@@ -220,7 +263,11 @@ The shared `.cljc` implementation currently provides:
 - an inspectable final symbol containing version, error-correction level, mask,
   segment metadata, and the matrix;
 - a pure shared terminal renderer with full-block modules, whitespace, and a
-  four-module quiet zone; and
+  four-module quiet zone;
+- a deterministic pure Plain PBM raster representation with integral scaling and a
+  four-module quiet zone;
+- a verified Babashka compatibility path for the pure fixed-profile encoder and
+  renderers; and
 - structured `ex-info` failures for invalid requests and invalid stage state.
 
 The current standards references and unresolved Annex I mask conflict are recorded in
@@ -235,6 +282,29 @@ stage invariants, and the Annex I.2 vector and run with:
 clojure -M:test
 clojure -M:cljs-test
 ```
+
+The current interoperability matrix can be reproduced on a machine with ZBar
+`zbarimg` and Python OpenCV installed:
+
+```sh
+python3 scripts/verify_interoperability.py
+```
+
+The script creates a new non-destructive evidence directory under `/tmp` by default;
+use `--output-root PATH` to select another parent. It generates five payloads through
+an actual JVM invocation and an actual ClojureScript/Node invocation, requires each
+runtime pair to be byte-identical, and decodes every artifact with both ZBar and
+OpenCV. Its JSON report records commands, exact producer/runtime/decoder versions,
+resolved decoder paths, artifact paths and hashes, and results. Missing OpenCV or
+ZBar fails with a persisted `status: failed` report in the fresh evidence directory.
+
+The 2026-07-24 reference run used Python 3.13.5, OpenJDK 25.0.3, Clojure CLI
+1.12.4.1618, Clojure 1.12.0, ClojureScript 1.12.145, Node 20.19.2,
+ZBar 0.23.93, and OpenCV 4.10.0.
+All five JVM/Node artifact pairs were byte-identical and all 20 decoder assertions
+recovered the exact payload, including leading zeros and the 34-digit capacity
+boundary. This is interoperability evidence for the fixed profile, not proof of
+ISO/IEC 18004 conformance.
 
 ## Non-goals
 
@@ -765,7 +835,7 @@ Exit evidence: the pipeline order, implemented prefix, and value shapes are exec
 and inspectable; each unimplemented obligation fails explicitly; and every stage has a
 standards-ledger entry.
 
-### Phase 1 — working Version 1-M Numeric vertical slice (core implemented)
+### Phase 1 — working Version 1-M Numeric vertical slice (completed)
 
 Implement in pipeline order, adding only the supporting arithmetic needed by the next
 stage:
@@ -787,10 +857,12 @@ Exit evidence: intermediate values and final modules match independently verifie
 fixtures; at least two independent decoders recover the Numeric payload in both
 Clojure and ClojureScript.
 
-Current status: the pure core, shared specs, generated properties, Annex I.2 data,
-parity, format, and final-matrix fixtures, and JVM/Node parity are implemented.
-The two-decoder interoperability evidence remains pending, so the Phase 1 exit evidence
-is not yet complete.
+Current status: the pure core, shared specs, generated properties, corrected Annex I.2
+data/parity/format/final-matrix fixtures, and JVM/Node parity are implemented. A first
+external probe exposed a reversed primary format-information copy; the Figure 25
+orientation was corrected before acceptance. Five boundary payloads generated
+independently through both runtimes now decode exactly with ZBar and OpenCV, satisfying
+the stated Phase 1 exit evidence without making a conformance claim.
 
 ### Phase 2 — Numeric mode across ordinary QR
 
