@@ -105,9 +105,20 @@
           :let [{:keys [data-codeword-count
                         numeric-capacity
                         total-codeword-count
-                        error-correction-codeword-count]}
+                        error-correction-codeword-count
+                        error-correction-block-count
+                        error-correction-codeword-count-per-block
+                        block-groups]}
                 (parameters/ordinary-qr-parameters version level)
-                capacity-bits (* 8 data-codeword-count)]]
+                capacity-bits (* 8 data-codeword-count)
+                block-lengths
+                (into []
+                      (mapcat
+                       (fn [{:keys [block-count
+                                    data-codeword-count-per-block]}]
+                         (repeat block-count
+                                 data-codeword-count-per-block)))
+                      block-groups)]]
     (testing (pr-str [version level])
       (is (<= (numeric-segment-bit-count version numeric-capacity)
               capacity-bits))
@@ -116,7 +127,13 @@
       (is (= total-codeword-count
              (+ data-codeword-count
                 error-correction-codeword-count)))
-      (is (pos? error-correction-codeword-count)))))
+      (is (= error-correction-codeword-count
+             (* error-correction-block-count
+                error-correction-codeword-count-per-block)))
+      (is (= error-correction-block-count (count block-lengths)))
+      (is (= data-codeword-count (reduce + block-lengths)))
+      (is (apply <= block-lengths))
+      (is (<= (- (peek block-lengths) (first block-lengths)) 1)))))
 
 (deftest selector-is-minimal-at-every-version-boundary
   (doseq [level parameters/error-correction-levels]
@@ -147,8 +164,37 @@
           :dimension 21
           :version-information-required? false
           :error-correction-level :m
-          :error-correction-codeword-count 10}
+          :error-correction-codeword-count 10
+          :error-correction-block-count 1
+          :error-correction-codeword-count-per-block 10
+          :block-groups
+          [{:block-count 1
+            :data-codeword-count-per-block 16}]}
          (parameters/ordinary-qr-parameters 1 :m))))
+
+(deftest table-nine-multi-group-regression-anchors
+  (is (= {:error-correction-codeword-count 88
+          :error-correction-block-count 4
+          :error-correction-codeword-count-per-block 22
+          :block-groups
+          [{:block-count 2 :data-codeword-count-per-block 11}
+           {:block-count 2 :data-codeword-count-per-block 12}]}
+         (select-keys (parameters/ordinary-qr-parameters 5 :h)
+                      [:error-correction-codeword-count
+                       :error-correction-block-count
+                       :error-correction-codeword-count-per-block
+                       :block-groups])))
+  (is (= {:error-correction-codeword-count 2430
+          :error-correction-block-count 81
+          :error-correction-codeword-count-per-block 30
+          :block-groups
+          [{:block-count 20 :data-codeword-count-per-block 15}
+           {:block-count 61 :data-codeword-count-per-block 16}]}
+         (select-keys (parameters/ordinary-qr-parameters 40 :h)
+                      [:error-correction-codeword-count
+                       :error-correction-block-count
+                       :error-correction-codeword-count-per-block
+                       :block-groups]))))
 
 (deftest invalid-lookup-and-selection-fail-explicitly
   (doseq [version [0 41 1.5 nil]]

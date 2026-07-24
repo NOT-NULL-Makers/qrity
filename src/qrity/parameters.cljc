@@ -88,29 +88,87 @@
    [[2812 6743] [2216 5313] [1582 3791] [1222 2927]]
    [[2956 7089] [2334 5596] [1666 3993] [1276 3057]]])
 
-(def ordinary-qr-versions
-  "Ordered catalogue of ordinary QR version and Table 7 level facts.
+;; Canonical transcriptions from Table 9, printed pp. 38–44 (PDF pp. 46–52).
+;; Each version row contains L/M/Q/H pairs of
+;; [total error-correction codewords, total error-correction blocks].
+(def ^:private table-9-level-facts
+  [[[7 1] [10 1] [13 1] [17 1]]
+   [[10 1] [16 1] [22 1] [28 1]]
+   [[15 1] [26 1] [36 2] [44 2]]
+   [[20 1] [36 2] [52 2] [64 4]]
+   [[26 1] [48 2] [72 4] [88 4]]
+   [[36 2] [64 4] [96 4] [112 4]]
+   [[40 2] [72 4] [108 6] [130 5]]
+   [[48 2] [88 4] [132 6] [156 6]]
+   [[60 2] [110 5] [160 8] [192 8]]
+   [[72 4] [130 5] [192 8] [224 8]]
+   [[80 4] [150 5] [224 8] [264 11]]
+   [[96 4] [176 8] [260 10] [308 11]]
+   [[104 4] [198 9] [288 12] [352 16]]
+   [[120 4] [216 9] [320 16] [384 16]]
+   [[132 6] [240 10] [360 12] [432 18]]
+   [[144 6] [280 10] [408 17] [480 16]]
+   [[168 6] [308 11] [448 16] [532 19]]
+   [[180 6] [338 13] [504 18] [588 21]]
+   [[196 7] [364 14] [546 21] [650 25]]
+   [[224 8] [416 16] [600 20] [700 25]]
+   [[224 8] [442 17] [644 23] [750 25]]
+   [[252 9] [476 17] [690 23] [816 34]]
+   [[270 9] [504 18] [750 25] [900 30]]
+   [[300 10] [560 20] [810 27] [960 32]]
+   [[312 12] [588 21] [870 29] [1050 35]]
+   [[336 12] [644 23] [952 34] [1110 37]]
+   [[360 12] [700 25] [1020 34] [1200 40]]
+   [[390 13] [728 26] [1050 35] [1260 42]]
+   [[420 14] [784 28] [1140 38] [1350 45]]
+   [[450 15] [812 29] [1200 40] [1440 48]]
+   [[480 16] [868 31] [1290 43] [1530 51]]
+   [[510 17] [924 33] [1350 45] [1620 54]]
+   [[540 18] [980 35] [1440 48] [1710 57]]
+   [[570 19] [1036 37] [1530 51] [1800 60]]
+   [[570 19] [1064 38] [1590 53] [1890 63]]
+   [[600 20] [1120 40] [1680 56] [1980 66]]
+   [[630 21] [1204 43] [1770 59] [2100 70]]
+   [[660 22] [1260 45] [1860 62] [2220 74]]
+   [[720 24] [1316 47] [1950 65] [2310 77]]
+   [[750 25] [1372 49] [2040 68] [2430 81]]])
 
-  Dimension, version-information presence, and aggregate error-correction
-  codewords are intentionally derived by `ordinary-qr-parameters`."
+(def ordinary-qr-versions
+  "Ordered catalogue of ordinary QR version and Tables 7/9 level facts.
+
+  Dimension, version-information presence, per-block error-correction count,
+  and shortest-first block groups are derived by `ordinary-qr-parameters`."
   (mapv
-   (fn [index [total-codeword-count remainder-bit-count] centers level-facts]
+   (fn [index
+        [total-codeword-count remainder-bit-count]
+        centers
+        table-7-facts
+        table-9-facts]
      {:version (inc index)
       :total-codeword-count total-codeword-count
       :remainder-bit-count remainder-bit-count
       :alignment-pattern-centers centers
       :levels
       (into {}
-            (map (fn [level [data-codeword-count printed-numeric-capacity]]
+            (map (fn [level
+                      [data-codeword-count printed-numeric-capacity]
+                      [error-correction-codeword-count
+                       error-correction-block-count]]
                    [level
                     {:data-codeword-count data-codeword-count
-                     :numeric-capacity printed-numeric-capacity}])
+                     :numeric-capacity printed-numeric-capacity
+                     :error-correction-codeword-count
+                     error-correction-codeword-count
+                     :error-correction-block-count
+                     error-correction-block-count}])
                  error-correction-levels
-                 level-facts))})
+                 table-7-facts
+                 table-9-facts))})
    (range 40)
    table-1-version-facts
    alignment-pattern-centers
-   table-7-level-facts))
+   table-7-level-facts
+   table-9-level-facts))
 
 (s/def ::version (s/int-in 1 41))
 (s/def ::error-correction-level error-correction-level-set)
@@ -119,10 +177,35 @@
   (s/and string? #(boolean (re-matches #"[0-9]+" %))))
 (s/def ::data-codeword-count pos-int?)
 (s/def ::error-correction-codeword-count pos-int?)
+(s/def ::error-correction-block-count pos-int?)
+(s/def ::error-correction-codeword-count-per-block pos-int?)
+(s/def ::block-count pos-int?)
+(s/def ::data-codeword-count-per-block pos-int?)
 (s/def ::total-codeword-count pos-int?)
 (s/def ::remainder-bit-count #{0 3 4 7})
 (s/def ::alignment-pattern-centers
   (s/coll-of nat-int? :kind vector? :distinct true))
+(defn block-group?
+  [value]
+  (and (map? value)
+       (= #{:block-count :data-codeword-count-per-block}
+          (set (keys value)))
+       (s/valid? ::block-count (:block-count value))
+       (s/valid? ::data-codeword-count-per-block
+                 (:data-codeword-count-per-block value))))
+
+(defn block-groups?
+  [value]
+  (and (vector? value)
+       (<= 1 (count value) 2)
+       (every? block-group? value)
+       (or (= 1 (count value))
+           (let [[short-group long-group] value]
+             (= (inc (:data-codeword-count-per-block short-group))
+                (:data-codeword-count-per-block long-group))))))
+
+(s/def ::block-group block-group?)
+(s/def ::block-groups block-groups?)
 
 (def catalogue-row-keys
   #{:version
@@ -132,7 +215,10 @@
     :levels})
 
 (def level-row-keys
-  #{:data-codeword-count :numeric-capacity})
+  #{:data-codeword-count
+    :numeric-capacity
+    :error-correction-codeword-count
+    :error-correction-block-count})
 
 (defn catalogue-row?
   [value]
@@ -156,8 +242,18 @@
                            (:data-codeword-count row))
                  (s/valid? ::numeric-capacity
                            (:numeric-capacity row))
+                 (s/valid? ::error-correction-codeword-count
+                           (:error-correction-codeword-count row))
+                 (s/valid? ::error-correction-block-count
+                           (:error-correction-block-count row))
                  (< (:data-codeword-count row)
-                    (:total-codeword-count value)))))
+                    (:total-codeword-count value))
+                 (= (:total-codeword-count value)
+                    (+ (:data-codeword-count row)
+                       (:error-correction-codeword-count row)))
+                 (zero?
+                  (mod (:error-correction-codeword-count row)
+                       (:error-correction-block-count row))))))
         error-correction-levels)))
 
 (s/def ::catalogue-row catalogue-row?)
@@ -181,7 +277,10 @@
     :dimension
     :version-information-required?
     :error-correction-level
-    :error-correction-codeword-count})
+    :error-correction-codeword-count
+    :error-correction-block-count
+    :error-correction-codeword-count-per-block
+    :block-groups})
 
 (defn ordinary-qr-parameter-map?
   [value]
@@ -196,6 +295,11 @@
                  (:data-codeword-count value))
        (s/valid? ::error-correction-codeword-count
                  (:error-correction-codeword-count value))
+       (s/valid? ::error-correction-block-count
+                 (:error-correction-block-count value))
+       (s/valid? ::error-correction-codeword-count-per-block
+                 (:error-correction-codeword-count-per-block value))
+       (s/valid? ::block-groups (:block-groups value))
        (s/valid? ::numeric-capacity (:numeric-capacity value))
        (s/valid? ::remainder-bit-count
                  (:remainder-bit-count value))
@@ -207,7 +311,21 @@
           (:version-information-required? value))
        (= (:total-codeword-count value)
           (+ (:data-codeword-count value)
-             (:error-correction-codeword-count value)))))
+             (:error-correction-codeword-count value)))
+       (= (:error-correction-codeword-count value)
+          (* (:error-correction-block-count value)
+             (:error-correction-codeword-count-per-block value)))
+       (= (:error-correction-block-count value)
+          (reduce + (map :block-count (:block-groups value))))
+       (= (:data-codeword-count value)
+          (reduce +
+                  (map #(* (:block-count %)
+                           (:data-codeword-count-per-block %))
+                       (:block-groups value))))
+       (or (= 1 (count (:block-groups value)))
+           (let [[short-group long-group] (:block-groups value)]
+             (= (inc (:data-codeword-count-per-block short-group))
+                (:data-codeword-count-per-block long-group))))))
 
 (s/def ::ordinary-qr-parameters ordinary-qr-parameter-map?)
 
@@ -219,6 +337,23 @@
   [version]
   (when (and (int? version) (<= 1 version 40))
     (nth ordinary-qr-versions (dec version))))
+
+(defn- derive-block-groups
+  [data-codeword-count error-correction-block-count]
+  (let [short-data-count
+        (quot data-codeword-count error-correction-block-count)
+        long-block-count
+        (mod data-codeword-count error-correction-block-count)
+        short-block-count
+        (- error-correction-block-count long-block-count)]
+    (cond-> []
+      (pos? short-block-count)
+      (conj {:block-count short-block-count
+             :data-codeword-count-per-block short-data-count})
+
+      (pos? long-block-count)
+      (conj {:block-count long-block-count
+             :data-codeword-count-per-block (inc short-data-count)}))))
 
 (defn ordinary-qr-parameters
   "Returns catalogued ordinary-QR parameters for a version and EC level.
@@ -238,16 +373,37 @@
               :supported-error-correction-levels error-correction-levels}))
     (let [level-parameters (get-in row [:levels error-correction-level])
           total-codeword-count (:total-codeword-count row)
-          data-codeword-count (:data-codeword-count level-parameters)]
+          data-codeword-count (:data-codeword-count level-parameters)
+          error-correction-codeword-count
+          (:error-correction-codeword-count level-parameters)
+          error-correction-block-count
+          (:error-correction-block-count level-parameters)]
+      (when-not (= total-codeword-count
+                   (+ data-codeword-count
+                      error-correction-codeword-count))
+        (fail! :invalid-parameter-catalogue
+               "Table 1, Table 7, and Table 9 codeword totals disagree"
+               {:version version
+                :error-correction-level error-correction-level}))
+      (when-not (zero?
+                 (mod error-correction-codeword-count
+                      error-correction-block-count))
+        (fail! :invalid-parameter-catalogue
+               "Table 9 EC codewords do not divide evenly across blocks"
+               {:version version
+                :error-correction-level error-correction-level}))
       (merge
        (dissoc row :levels)
        level-parameters
        {:dimension (+ 17 (* 4 version))
         :version-information-required? (<= 7 version)
         :error-correction-level error-correction-level
-        ;; Provisional derived total; Table 9 reconciliation is the next Phase 2 gate.
-        :error-correction-codeword-count
-        (- total-codeword-count data-codeword-count)}))))
+        :error-correction-codeword-count-per-block
+        (quot error-correction-codeword-count
+              error-correction-block-count)
+        :block-groups
+        (derive-block-groups data-codeword-count
+                             error-correction-block-count)}))))
 
 (defn numeric-capacity
   "Returns the Table 7 Numeric capacity for a catalogued version and EC level."

@@ -64,17 +64,48 @@ and returns the smallest version whose Table 7 capacity fits:
 ;; => 2
 
 (select-keys (parameters/ordinary-qr-parameters 2 :m)
-             [:version :dimension :data-codeword-count :numeric-capacity])
+             [:version :dimension :data-codeword-count :numeric-capacity
+              :error-correction-block-count :block-groups])
 ;; => {:version 2,
 ;;     :dimension 25,
 ;;     :data-codeword-count 28,
-;;     :numeric-capacity 63}
+;;     :numeric-capacity 63,
+;;     :error-correction-block-count 1,
+;;     :block-groups
+;;     [{:block-count 1, :data-codeword-count-per-block 28}]}
 ```
 
 These profiles are catalogued and selectable, not yet encodable by the complete
 pipeline. Continue to call `encode-numeric-v1-m` only with 1–34 digits. The selector
 is deliberately isolated so it cannot send an unsupported Version 2–40 request into
 the fixed Version 1-M matrix and message stages.
+
+Table 9 block layouts and Clause 7.6 transformations are available as provisional
+pure building blocks for the generalized encoder. For example, Version 5-H has two
+11-codeword data blocks and two 12-codeword data blocks:
+
+```clojure
+(require '[qrity.message :as message])
+
+(def parameters-5-h
+  (parameters/ordinary-qr-parameters 5 :h))
+
+(def data-blocks
+  (message/partition-data-codewords
+   (vec (range 46))
+   (:block-groups parameters-5-h)))
+
+(mapv count data-blocks)
+;; => [11 11 12 12]
+
+(count (message/interleave-data-codewords data-blocks))
+;; => 46
+```
+
+`interleave-error-correction-codewords` separately requires equal-length parity
+blocks and preserves the same supplied block order. These functions expose the
+verified partition/interleave mechanics; they do not yet construct a complete
+Version 2–40 symbol or append remainder bits.
 
 ### Terminal Unicode
 
@@ -301,8 +332,12 @@ The shared `.cljc` implementation currently provides:
 - a verified Babashka compatibility path for the pure fixed-profile encoder and
   renderers;
 - a pure ordinary-QR parameter catalogue covering Version 1–40 dimensions,
-  remainder bits, alignment-center axes, L/M/Q/H data codewords, and Numeric
-  capacities, plus isolated smallest-version selection; and
+  remainder bits, alignment-center axes, L/M/Q/H data codewords, Numeric capacities,
+  and Table 9 error-correction block layouts, plus isolated smallest-version
+  selection;
+- provisional pure Table 9 data-block partitioning and separate Clause 7.6 data and
+  error-correction interleavers, with strict shortest-first/equal-length contracts;
+  and
 - structured `ex-info` failures for invalid requests and invalid stage state.
 
 The current standards references and unresolved Annex I mask conflict are recorded in
@@ -911,12 +946,15 @@ the stated Phase 1 exit evidence without making a conformance claim.
 Exit evidence: structural properties cover all required table rows; representative
 Numeric symbols from every version range decode independently.
 
-Current status: batch A is implemented. Tables 1, 7, and E.1 provide the complete
-40-version/160-level parameter catalogue; all printed Numeric capacities are checked
-against an independent Clause 7.4.3 bit calculation, and every smallest-version
-boundary is exercised on JVM and Node. The existing encoder remains fixed to Version
-1-M. Table 9 block-group transcription and aggregate reconciliation are the next
-acceptance gate before multiple-block encoding or interleaving begins.
+Current status: batches A and B are implemented. Tables 1, 7, 9, and E.1 provide the
+complete 40-version/160-level parameter catalogue. All 160 canonical Table 9
+error-correction/block-count cells and all 288 printed block-group records were
+independently reconciled. Pure data partitioning and separate data/parity interleavers
+are exhaustively exercised on JVM and Node, including the unequal Version 5-H layout
+with real per-block Reed–Solomon output; Babashka loads and runs the same shared
+primitives. The existing complete encoder remains fixed to Version 1-M. Generalized
+Numeric data encoding, production per-block Reed–Solomon orchestration, remainder-bit
+assembly, and generalized matrices remain the next increments.
 
 ### Phase 3 — mask selection and hardening
 
