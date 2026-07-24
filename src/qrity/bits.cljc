@@ -60,25 +60,31 @@
         (partition-all 3 digits)))
 
 (defn numeric-segment-bits
-  "Builds a Version 1–9 ordinary-QR Numeric segment without terminator/padding."
-  [digits]
-  (into [0 0 0 1]
-        (concat (unsigned-integer->bits (count digits) 10)
-                (numeric-data-bits digits))))
+  "Builds an ordinary-QR Numeric segment without terminator or padding.
+
+  The one-argument form preserves the fixed Version 1–9 behavior."
+  ([digits]
+   (numeric-segment-bits digits 10))
+  ([digits character-count-width]
+   (into [0 0 0 1]
+         (concat
+          (unsigned-integer->bits (count digits) character-count-width)
+          (numeric-data-bits digits)))))
 
 (defn pad-data-codewords
   "Terminates, byte-aligns, and pads segment bits to `codeword-count`."
   [segment-bits codeword-count]
-  (let [capacity-bits (* 8 codeword-count)
-        terminator-count (min 4 (- capacity-bits (count segment-bits)))
-        terminated (into segment-bits (repeat terminator-count 0))
-        alignment-count (mod (- 8 (mod (count terminated) 8)) 8)
-        aligned (into terminated (repeat alignment-count 0))
-        initial-codewords (bits->codewords aligned)
-        pad-count (- codeword-count (count initial-codewords))]
-    (when (neg? terminator-count)
+  (let [capacity-bits (* 8 codeword-count)]
+    (when (> (count segment-bits) capacity-bits)
       (throw (ex-info "Segment exceeds data-codeword capacity"
                       {:segment-bit-count (count segment-bits)
                        :capacity-bits capacity-bits})))
-    (into initial-codewords
-          (take pad-count (cycle [0xEC 0x11])))))
+    (let [terminator-count
+          (min 4 (- capacity-bits (count segment-bits)))
+          terminated (into segment-bits (repeat terminator-count 0))
+          alignment-count (mod (- 8 (mod (count terminated) 8)) 8)
+          aligned (into terminated (repeat alignment-count 0))
+          initial-codewords (bits->codewords aligned)
+          pad-count (- codeword-count (count initial-codewords))]
+      (into initial-codewords
+            (take pad-count (cycle [0xEC 0x11]))))))

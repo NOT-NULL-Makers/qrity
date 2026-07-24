@@ -104,8 +104,39 @@ pure building blocks for the generalized encoder. For example, Version 5-H has t
 
 `interleave-error-correction-codewords` separately requires equal-length parity
 blocks and preserves the same supplied block order. These functions expose the
-verified partition/interleave mechanics; they do not yet construct a complete
-Version 2–40 symbol or append remainder bits.
+verified partition/interleave mechanics.
+
+The next provisional layer constructs the complete codeword message for a selected
+Numeric profile:
+
+```clojure
+(require '[qrity.segment :as segment])
+
+(def data-codewords
+  (segment/numeric-data-codewords "1234567890" 5 :h))
+
+(def final-message
+  (message/construct-final-message data-codewords 5 :h))
+
+(select-keys final-message
+             [:version :error-correction-level :remainder-bits])
+;; => {:version 5,
+;;     :error-correction-level :h,
+;;     :remainder-bits [0 0 0 0 0 0 0]}
+
+[(count (:data-blocks final-message))
+ (mapv count (:data-blocks final-message))
+ (count (:message-codewords final-message))
+ (count (:message-bits final-message))]
+;; => [4 [11 11 12 12] 134 1079]
+```
+
+`numeric-data-codewords` selects the correct 10/12/14-bit Numeric character-count
+field, terminates, byte-aligns, and pads to the explicit profile. The message
+constructor partitions those codewords, generates Reed–Solomon parity independently
+for every block, interleaves data then parity, and appends the version's zero remainder
+bits. It does not construct a matrix or complete Version 2–40 QR symbol; alignment
+patterns, placement, version/format metadata, masking, and rendering remain deferred.
 
 ### Terminal Unicode
 
@@ -337,7 +368,9 @@ The shared `.cljc` implementation currently provides:
   selection;
 - provisional pure Table 9 data-block partitioning and separate Clause 7.6 data and
   error-correction interleavers, with strict shortest-first/equal-length contracts;
-  and
+- provisional selected-profile Numeric data-codeword and complete codeword-message
+  construction across all 160 ordinary version/level profiles, including per-block
+  Reed–Solomon parity and remainder bits; and
 - structured `ex-info` failures for invalid requests and invalid stage state.
 
 The current standards references and unresolved Annex I mask conflict are recorded in
@@ -946,15 +979,17 @@ the stated Phase 1 exit evidence without making a conformance claim.
 Exit evidence: structural properties cover all required table rows; representative
 Numeric symbols from every version range decode independently.
 
-Current status: batches A and B are implemented. Tables 1, 7, 9, and E.1 provide the
+Current status: batches A through C are implemented. Tables 1, 7, 9, and E.1 provide the
 complete 40-version/160-level parameter catalogue. All 160 canonical Table 9
 error-correction/block-count cells and all 288 printed block-group records were
 independently reconciled. Pure data partitioning and separate data/parity interleavers
-are exhaustively exercised on JVM and Node, including the unequal Version 5-H layout
-with real per-block Reed–Solomon output; Babashka loads and runs the same shared
-primitives. The existing complete encoder remains fixed to Version 1-M. Generalized
-Numeric data encoding, production per-block Reed–Solomon orchestration, remainder-bit
-assembly, and generalized matrices remain the next increments.
+feed selected-profile Numeric message construction with 10/12/14-bit count fields,
+terminator/alignment/padding, per-block Reed–Solomon, and exact remainder-bit assembly.
+All 160 profiles are checked against an independent data-bit/padding reference and
+independent zero-syndrome evaluation on JVM, Node, and Babashka. Every supported
+Version 1-M payload length remains byte-identical to the fixed pipeline. The existing
+complete encoder remains fixed to Version 1-M; generalized matrices, alignment
+placement, version/format metadata, and masking remain the next increments.
 
 ### Phase 3 — mask selection and hardening
 

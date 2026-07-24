@@ -3,7 +3,8 @@
             [qrity.encode-test]
             [qrity.message-test]
             [qrity.parameters-test]
-            [qrity.render-test]))
+            [qrity.render-test]
+            [qrity.segment-test]))
 
 (defn -main
   [& _]
@@ -11,7 +12,8 @@
         (test/run-tests 'qrity.encode-test
                         'qrity.message-test
                         'qrity.parameters-test
-                        'qrity.render-test)]
+                        'qrity.render-test
+                        'qrity.segment-test)]
     (when-not (and (pos? test)
                    (zero? (+ fail error)))
       (System/exit 1))))

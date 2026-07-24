@@ -1,8 +1,11 @@
 (ns qrity.message-test
   (:require [clojure.spec.alpha :as s]
+            [qrity.bits :as bits]
+            [qrity.encode :as encode]
             [qrity.message :as message]
             [qrity.parameters :as parameters]
             [qrity.reed-solomon :as reed-solomon]
+            [qrity.segment :as segment]
             #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])))
 
@@ -30,6 +33,40 @@
            (fn [codeword-index]
              (keep #(get % codeword-index) blocks))
            (range maximum-length)))))
+
+(defn reference-gf-multiply
+  [left right]
+  (let [product
+        (reduce (fn [product bit-index]
+                  (if (bit-test right bit-index)
+                    (bit-xor product (bit-shift-left left bit-index))
+                    product))
+                0
+                (range 8))]
+    (reduce (fn [value bit-index]
+              (if (bit-test value bit-index)
+                (bit-xor value
+                         (bit-shift-left 0x11D (- bit-index 8)))
+                value))
+            product
+            (range 14 7 -1))))
+
+(defn reference-alpha-power
+  [exponent]
+  (nth (iterate #(reference-gf-multiply % 2) 1) exponent))
+
+(defn reference-syndromes
+  [codewords degree]
+  (mapv
+   (fn [exponent]
+     (let [value (reference-alpha-power exponent)]
+       (reduce (fn [result coefficient]
+                 (bit-xor
+                  (reference-gf-multiply result value)
+                  coefficient))
+               0
+               codewords)))
+   (range degree)))
 
 (deftest every-ordinary-profile-partitions-and-interleaves
   (doseq [version (range 1 41)
@@ -179,3 +216,108 @@
            #(message/interleave-error-correction-codewords blocks))]
       (is (= :invalid-error-correction-blocks (:qrity/error data)))
       (is (= expected-reason (:reason data))))))
+
+(deftest every-profile-constructs-the-complete-codeword-message
+  (doseq [version (range 1 41)
+          level parameters/error-correction-levels
+          :let [{:keys [numeric-capacity
+                        data-codeword-count
+                        total-codeword-count
+                        error-correction-block-count
+                        error-correction-codeword-count-per-block
+                        remainder-bit-count]}
+                (parameters/ordinary-qr-parameters version level)
+                payload (apply str (repeat numeric-capacity "0"))
+                data-codewords
+                (segment/numeric-data-codewords payload version level)
+                result
+                (message/construct-final-message
+                 data-codewords version level)]]
+    (testing (pr-str [version level])
+      (is (= data-codeword-count (count (:data-codewords result))))
+      (is (= error-correction-block-count
+             (count (:data-blocks result))))
+      (is (= error-correction-block-count
+             (count (:error-correction-blocks result))))
+      (is (every? #(= error-correction-codeword-count-per-block
+                      (count %))
+                  (:error-correction-blocks result)))
+      (is (every?
+           true?
+           (map (fn [data-block error-correction-block]
+                  (every?
+                   zero?
+                   (reference-syndromes
+                    (into data-block error-correction-block)
+                    error-correction-codeword-count-per-block)))
+                (:data-blocks result)
+                (:error-correction-blocks result))))
+      (is (= total-codeword-count (count (:message-codewords result))))
+      (is (= remainder-bit-count (count (:remainder-bits result))))
+      (is (every? zero? (:remainder-bits result)))
+      (is (= (+ (* 8 total-codeword-count) remainder-bit-count)
+             (count (:message-bits result))))
+      (is (s/valid? ::message/final-message result)))))
+
+(deftest generalized-version-one-m-message-equals-fixed-stage
+  (doseq [length (range 1 35)
+          :let [payload (apply str (take length (cycle "0123456789")))
+                fixed (encode/encode-numeric-v1-m payload)
+                generalized
+                (message/construct-final-message
+                 (segment/numeric-data-codewords payload 1 :m)
+                 1
+                 :m)]]
+    (is (= (:message-codewords fixed)
+           (:message-codewords generalized)))
+    (is (= (:message-bits fixed) (:message-bits generalized)))
+    (is (empty? (:remainder-bits generalized)))))
+
+(deftest final-message-boundary-and-spec-failures-are-explicit
+  (let [data-codewords
+        (segment/numeric-data-codewords "123" 5 :h)
+        result
+        (message/construct-final-message data-codewords 5 :h)]
+    (is (s/valid? ::message/final-message-request
+                  (list data-codewords 5 :h)))
+    (is (not (s/valid? ::message/final-message-request
+                       (list (pop data-codewords) 5 :h))))
+    (is (not (s/valid? ::message/final-message
+                       (assoc result :remainder-bits []))))
+    (is (not (s/valid? ::message/final-message
+                       (update result :error-correction-blocks pop))))
+    (let [forged-parity
+          (update-in result [:error-correction-blocks 0 0] bit-xor 1)
+          forged-parity
+          (assoc forged-parity
+                 :interleaved-error-correction-codewords
+                 (message/interleave-error-correction-codewords
+                  (:error-correction-blocks forged-parity)))
+          forged-parity
+          (assoc forged-parity
+                 :message-codewords
+                 (into (:interleaved-data-codewords forged-parity)
+                       (:interleaved-error-correction-codewords
+                        forged-parity)))
+          forged-parity
+          (assoc forged-parity
+                 :message-bits
+                 (into
+                  (bits/codewords->bits (:message-codewords forged-parity))
+                  (:remainder-bits forged-parity)))]
+      (is (not (s/valid? ::message/final-message forged-parity))))
+    (is (= :data-codeword-count-mismatch
+           (:qrity/error
+            (exception-data
+             #(message/construct-final-message
+               (pop data-codewords) 5 :h)))))
+    (is (= :invalid-version
+           (:qrity/error
+            (exception-data
+             #(message/construct-final-message
+               data-codewords 0 :h)))))
+    (is (= :invalid-error-correction-level
+           (:qrity/error
+            (exception-data
+             #(message/construct-final-message
+               data-codewords 5 :z)))))))

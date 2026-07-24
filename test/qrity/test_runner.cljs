@@ -3,7 +3,8 @@
             [qrity.encode-test]
             [qrity.message-test]
             [qrity.parameters-test]
-            [qrity.render-test]))
+            [qrity.render-test]
+            [qrity.segment-test]))
 
 (defmethod test/report [:cljs.test/default :end-run-tests]
   [summary]
@@ -21,6 +22,7 @@
                   'qrity.encode-test
                   'qrity.message-test
                   'qrity.parameters-test
-                  'qrity.render-test))
+                  'qrity.render-test
+                  'qrity.segment-test))
 
 (set! *main-cli-fn* -main)

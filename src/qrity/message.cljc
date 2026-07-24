@@ -3,7 +3,9 @@
 
   These primitives are not yet wired into the fixed Version 1-M encoder."
   (:require [clojure.spec.alpha :as s]
-            [qrity.parameters :as parameters]))
+            [qrity.bits :as bits]
+            [qrity.parameters :as parameters]
+            [qrity.reed-solomon :as reed-solomon]))
 
 (defn codeword?
   [value]
@@ -48,6 +50,8 @@
 (s/def ::error-correction-blocks error-correction-blocks?)
 (s/def ::interleaved-codewords
   (s/coll-of ::codeword :kind vector? :min-count 1))
+(s/def ::remainder-bits
+  (s/coll-of #{0} :kind vector?))
 
 (defn- fail!
   [error message data]
@@ -165,6 +169,139 @@
               :error-correction-blocks error-correction-blocks})))
   (interleave-columns error-correction-blocks))
 
+(defn construct-final-message
+  "Constructs selected-profile blocks, parity, interleaving, and remainder bits.
+
+  This does not construct a matrix or a complete QR symbol."
+  [data-codewords version error-correction-level]
+  (let [profile
+        (parameters/ordinary-qr-parameters version error-correction-level)
+        data-blocks
+        (partition-data-codewords data-codewords (:block-groups profile))
+        error-correction-blocks
+        (mapv #(reed-solomon/error-correction-codewords
+                %
+                (:error-correction-codeword-count-per-block profile))
+              data-blocks)
+        interleaved-data-codewords
+        (interleave-data-codewords data-blocks)
+        interleaved-error-correction-codewords
+        (interleave-error-correction-codewords error-correction-blocks)
+        message-codewords
+        (into interleaved-data-codewords
+              interleaved-error-correction-codewords)
+        remainder-bits
+        (vec (repeat (:remainder-bit-count profile) 0))
+        message-bits
+        (into (bits/codewords->bits message-codewords) remainder-bits)]
+    (when-not (= (:total-codeword-count profile)
+                 (count message-codewords))
+      (fail! :final-message-invariant-failure
+             "Final message codeword count disagrees with the selected profile"
+             {:version version
+              :error-correction-level error-correction-level
+              :expected-count (:total-codeword-count profile)
+              :actual-count (count message-codewords)}))
+    {:version version
+     :error-correction-level error-correction-level
+     :data-codewords data-codewords
+     :data-blocks data-blocks
+     :error-correction-blocks error-correction-blocks
+     :interleaved-data-codewords interleaved-data-codewords
+     :interleaved-error-correction-codewords
+     interleaved-error-correction-codewords
+     :message-codewords message-codewords
+     :remainder-bits remainder-bits
+     :message-bits message-bits}))
+
+(def final-message-keys
+  #{:version
+    :error-correction-level
+    :data-codewords
+    :data-blocks
+    :error-correction-blocks
+    :interleaved-data-codewords
+    :interleaved-error-correction-codewords
+    :message-codewords
+    :remainder-bits
+    :message-bits})
+
+(defn final-message?
+  [value]
+  (try
+    (let [profile
+          (parameters/ordinary-qr-parameters
+           (:version value)
+           (:error-correction-level value))
+          expected-data-lengths
+          (into []
+                (mapcat
+                 (fn [{:keys [block-count
+                              data-codeword-count-per-block]}]
+                   (repeat block-count
+                           data-codeword-count-per-block)))
+                (:block-groups profile))
+          data-blocks (:data-blocks value)
+          error-correction-blocks (:error-correction-blocks value)
+          message-codewords (:message-codewords value)
+          remainder-bits (:remainder-bits value)]
+      (and (map? value)
+           (= final-message-keys (set (keys value)))
+           (codeword-vector? (:data-codewords value))
+           (data-blocks? data-blocks)
+           (error-correction-blocks? error-correction-blocks)
+           (= expected-data-lengths (mapv count data-blocks))
+           (= (:data-codewords value) (into [] cat data-blocks))
+           (= (:error-correction-block-count profile)
+              (count error-correction-blocks))
+           (every?
+            #(= (:error-correction-codeword-count-per-block profile)
+                (count %))
+            error-correction-blocks)
+           (= error-correction-blocks
+              (mapv
+               #(reed-solomon/error-correction-codewords
+                 %
+                 (:error-correction-codeword-count-per-block profile))
+               data-blocks))
+           (= (:interleaved-data-codewords value)
+              (interleave-data-codewords data-blocks))
+           (= (:interleaved-error-correction-codewords value)
+              (interleave-error-correction-codewords
+               error-correction-blocks))
+           (= message-codewords
+              (into (:interleaved-data-codewords value)
+                    (:interleaved-error-correction-codewords value)))
+           (= (:total-codeword-count profile)
+              (count message-codewords))
+           (s/valid? ::remainder-bits remainder-bits)
+           (= (:remainder-bit-count profile)
+              (count remainder-bits))
+           (= (:message-bits value)
+              (into (bits/codewords->bits message-codewords)
+                    remainder-bits))))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
+      false)))
+
+(defn final-message-request?
+  [{:keys [data-codewords version error-correction-level]}]
+  (try
+    (let [profile
+          (parameters/ordinary-qr-parameters version error-correction-level)]
+      (and (codeword-vector? data-codewords)
+           (= (:data-codeword-count profile)
+              (count data-codewords))))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
+      false)))
+
+(s/def ::final-message final-message?)
+(s/def ::final-message-request
+  (s/and
+   (s/cat :data-codewords any?
+          :version any?
+          :error-correction-level any?)
+   final-message-request?))
+
 (s/fdef partition-data-codewords
   :args (s/cat :data-codewords ::codewords
                :block-groups ::parameters/block-groups)
@@ -177,3 +314,7 @@
 (s/fdef interleave-error-correction-codewords
   :args (s/cat :error-correction-blocks ::error-correction-blocks)
   :ret ::interleaved-codewords)
+
+(s/fdef construct-final-message
+  :args ::final-message-request
+  :ret ::final-message)
