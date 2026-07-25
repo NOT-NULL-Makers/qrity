@@ -1,6 +1,6 @@
 (ns qrity.matrix
   (:require [clojure.spec.alpha :as s]
-            [qrity.bits :as bits]
+            [qrity.metadata :as metadata]
             [qrity.parameters :as parameters]))
 
 (def version-1-size 21)
@@ -79,7 +79,7 @@
          (for [row (range (- dimension 7) dimension)]
            [row 8]))))
 
-(defn- version-information-coordinates
+(defn- version-information-reservation-coordinates
   [dimension]
   {:top-right
    (into []
@@ -177,7 +177,7 @@
         matrix
         (if (<= 7 version)
           (let [{:keys [top-right bottom-left]}
-                (version-information-coordinates dimension)]
+                (version-information-reservation-coordinates dimension)]
             (reserve-coordinates
              matrix
              :version-information
@@ -465,27 +465,16 @@
                 row))
         matrix))
 
-(defn- format-information-value
-  [mask-reference]
-  ;; Table 12 maps level M to 00; the three low data bits are the mask.
-  (let [data mask-reference
-        shifted (bit-shift-left data 10)
-        generator 0x537
-        remainder
-        (reduce (fn [value bit-index]
-                  (if (bit-test value bit-index)
-                    (bit-xor value
-                             (bit-shift-left generator (- bit-index 10)))
-                    value))
-                shifted
-                (range 14 9 -1))]
-    (bit-xor (bit-or shifted remainder) 0x5412)))
-
 (defn format-information-bits
-  [mask-reference]
-  (bits/unsigned-integer->bits
-   (format-information-value mask-reference)
-   15))
+  "Returns ordinary-QR format information, most significant bit first.
+
+  The one-argument form preserves the fixed level M API."
+  ([mask-reference]
+   (metadata/format-information-bits mask-reference))
+  ([error-correction-level mask-reference]
+   (metadata/format-information-bits
+    error-correction-level
+    mask-reference)))
 
 (defn add-format-information
   [matrix mask-reference]
@@ -506,6 +495,192 @@
                     (map vector
                          secondary-format-coordinates
                          least-significant-first)))))
+
+(defn- version-information-placement-coordinates
+  [dimension]
+  {:top-right
+   (mapv (fn [bit-index]
+           [(quot bit-index 3)
+            (+ (- dimension 11) (mod bit-index 3))])
+         (range 18))
+   :bottom-left
+   (mapv (fn [bit-index]
+           [(+ (- dimension 11) (mod bit-index 3))
+            (quot bit-index 3)])
+         (range 18))})
+
+(defn- metadata-ready-matrix-for-version?
+  [value version]
+  (let [template (build-function-matrix version)
+        dimension (count template)]
+    (and
+     (= dimension (count value))
+     (every? #(and (vector? %)
+                   (= dimension (count %)))
+             value)
+     (every?
+      (fn [[row column]]
+        (let [template-cell (get-in template [row column])
+              cell (get-in value [row column])]
+          (case template-cell
+            :unset (#{:light :dark} cell)
+            :reserved (= :reserved cell)
+            (= template-cell cell))))
+      (for [row (range dimension)
+            column (range dimension)]
+        [row column])))))
+
+(defn metadata-ready-matrix?
+  "Checks a canonical placed/masked construction matrix with unresolved metadata."
+  [value]
+  (and
+   (vector? value)
+   (when-let [version (inferred-version value)]
+     (metadata-ready-matrix-for-version? value version))))
+
+(defn- metadata-complete-matrix-for-version?
+  [value version]
+  (let [template (build-function-matrix version)
+        dimension (count template)]
+    (and
+     (= dimension (count value))
+     (every? #(and (vector? %)
+                   (= dimension (count %)))
+             value)
+     (every?
+      (fn [[row column]]
+        (let [template-cell (get-in template [row column])
+              cell (get-in value [row column])]
+          (case template-cell
+            :unset (#{:light :dark} cell)
+            :reserved (#{:reserved-light :reserved-dark} cell)
+            (= template-cell cell))))
+      (for [row (range dimension)
+            column (range dimension)]
+        [row column])))))
+
+(defn metadata-complete-matrix?
+  "Checks a canonical construction matrix whose metadata reservations are resolved."
+  [value]
+  (and
+   (vector? value)
+   (when-let [version (inferred-version value)]
+     (metadata-complete-matrix-for-version? value version))))
+
+(defn- write-information-bits
+  [matrix coordinates information-bits]
+  (reduce (fn [matrix [coordinate bit]]
+            (assoc-in matrix
+                      coordinate
+                      (if (zero? bit)
+                        :reserved-light
+                        :reserved-dark)))
+          matrix
+          (map vector coordinates information-bits)))
+
+(defn- resolve-metadata*
+  [matrix error-correction-level mask-reference]
+  (let [version (inferred-version matrix)
+        dimension (count matrix)
+        format-bits
+        (metadata/format-information-bits
+         error-correction-level
+         mask-reference)
+        matrix
+        (-> matrix
+            (write-information-bits
+             primary-format-coordinates
+             format-bits)
+            (write-information-bits
+             (secondary-format-coordinates-for dimension)
+             (vec (reverse format-bits))))
+        matrix
+        (if (< version 7)
+          matrix
+          (let [version-bits
+                (vec
+                 (reverse
+                  (metadata/version-information-bits version)))
+                {:keys [top-right bottom-left]}
+                (version-information-placement-coordinates dimension)]
+            (-> matrix
+                (write-information-bits top-right version-bits)
+                (write-information-bits bottom-left version-bits))))]
+    matrix))
+
+(defn resolve-metadata
+  "Atomically resolves ordinary-QR format and applicable version reservations.
+
+  The matrix supplies the version. The level and mask reference are explicit, but
+  this low-level function cannot prove that the encoding modules were masked with
+  that reference; later orchestration must bind those operations."
+  [matrix error-correction-level mask-reference]
+  (when-not (metadata-ready-matrix? matrix)
+    (throw
+     (ex-info
+      "Metadata resolution requires an exact metadata-ready construction matrix"
+      {:qrity/error :invalid-metadata-matrix
+       :reason :noncanonical-metadata-ready-matrix
+       :actual-dimension (when (vector? matrix) (count matrix))
+       :clause "7.9.1/7.10"})))
+  (resolve-metadata*
+   matrix
+   error-correction-level
+   mask-reference))
+
+(defn metadata-resolution-matches?
+  "Checks a completed matrix against its metadata-ready source and parameters."
+  [before after error-correction-level mask-reference]
+  (and
+   (metadata-ready-matrix? before)
+   (metadata-complete-matrix? after)
+   (s/valid? ::parameters/error-correction-level
+             error-correction-level)
+   (s/valid? ::metadata/mask-reference mask-reference)
+   (= after
+      (resolve-metadata*
+       before
+       error-correction-level
+       mask-reference))))
+
+(s/def ::metadata-ready-matrix metadata-ready-matrix?)
+(s/def ::metadata-complete-matrix metadata-complete-matrix?)
+
+(defn- metadata-request?
+  [{:keys [matrix error-correction-level mask-reference]}]
+  (and
+   (metadata-ready-matrix? matrix)
+   (s/valid? ::parameters/error-correction-level
+             error-correction-level)
+   (s/valid? ::metadata/mask-reference mask-reference)))
+
+(s/def ::metadata-request
+  (s/and
+   (s/cat :matrix any?
+          :error-correction-level any?
+          :mask-reference any?)
+   metadata-request?))
+
+(s/fdef format-information-bits
+  :args
+  (s/alt :fixed-level
+         (s/cat :mask-reference ::metadata/mask-reference)
+         :explicit-level
+         (s/cat :error-correction-level
+                ::parameters/error-correction-level
+                :mask-reference ::metadata/mask-reference))
+  :ret ::metadata/format-information-bits)
+
+(s/fdef resolve-metadata
+  :args ::metadata-request
+  :ret ::metadata-complete-matrix
+  :fn
+  (fn [{:keys [args ret]}]
+    (metadata-resolution-matches?
+     (:matrix args)
+     ret
+     (:error-correction-level args)
+     (:mask-reference args))))
 
 (defn final-bit-matrix
   "Converts a fully resolved construction matrix to public 0/1 modules."

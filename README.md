@@ -136,8 +136,7 @@ field, terminates, byte-aligns, and pads to the explicit profile. The message
 constructor partitions those codewords, generates Reed–Solomon parity independently
 for every block, interleaves data then parity, and appends the version's zero remainder
 bits. By itself it does not construct a matrix or complete Version 2–40 QR symbol;
-the placement composition is shown below, while metadata, masking, and rendering
-remain deferred.
+the placement composition is shown below, while masking and rendering remain deferred.
 
 The complete message can now be placed into its canonical version template:
 
@@ -154,8 +153,36 @@ The complete message can now be placed into its canonical version template:
 ;; => [1079 0]
 ```
 
-This is an unmasked, pre-metadata construction matrix. Its `:reserved` format modules
-are still unresolved, so it is not a renderable final QR symbol.
+This is an unmasked, pre-metadata construction matrix. Its `:reserved` format and,
+for Version 7 or larger, version modules are still unresolved, so it is not a
+renderable final QR symbol.
+
+The metadata calculations are independently usable for every ordinary QR profile:
+
+```clojure
+(require '[qrity.metadata :as metadata])
+
+(metadata/format-information-bits :h 3)
+;; => [0 0 1 1 0 0 1 1 1 0 1 0 0 0 0]
+
+(metadata/version-information-bits 7)
+;; => [0 0 0 1 1 1 1 1 0 0 1 0 0 1 0 1 0 0]
+```
+
+After a later masking step has applied a selected mask to the encoding modules, its
+metadata reservations can be resolved atomically:
+
+```clojure
+(def completed-construction-matrix
+  (matrix/resolve-metadata masked-matrix :h 3))
+```
+
+`resolve-metadata` infers the version from an exact construction matrix, writes both
+format copies, and writes both Version 7–40 version-information copies. It rejects
+function templates, partially resolved metadata, already completed metadata, and
+noncanonical matrices. The low-level function cannot prove that `masked-matrix` was
+actually masked with reference `3`; the next masking phase will bind those operations.
+Do not treat the current unmasked generalized placement result as a final symbol.
 
 ### Terminal Unicode
 
@@ -394,7 +421,10 @@ The shared `.cljc` implementation currently provides:
   alignment patterns, the fixed dark module, and unresolved format/version metadata
   reservations;
 - pure Clause 7.7.3 traversal and complete-message placement across those templates,
-  producing unmasked pre-metadata construction matrices; and
+  producing unmasked pre-metadata construction matrices;
+- pure Annex C format calculation for all 32 level/mask combinations, Annex D version
+  calculation for Versions 7–40, and atomic resolution of both redundant metadata
+  copies across all ordinary versions; and
 - structured `ex-info` failures for invalid requests and invalid stage state.
 
 The current standards references and unresolved Annex I mask conflict are recorded in
@@ -1012,8 +1042,8 @@ terminator/alignment/padding, per-block Reed–Solomon, and exact remainder-bit 
 All 160 profiles are checked against an independent data-bit/padding reference and
 independent zero-syndrome evaluation on JVM, Node, and Babashka. Every supported
 Version 1-M payload length remains byte-identical to the fixed pipeline. The existing
-complete encoder remains fixed to Version 1-M; generalized version/format metadata
-values and masking remain the next increments.
+complete encoder remains fixed to Version 1-M; generalized masking remains the next
+increment.
 
 Batch D adds canonical function-pattern/reservation templates for Versions 1–40:
 
@@ -1038,6 +1068,13 @@ right-before-left two-column stripes, skips the vertical timing column as stripe
 `[5,4]`, and visits every encoding module exactly once. All 160 real version/level
 messages are placed and recovered in shared tests. The result still contains
 unresolved metadata and has not been masked.
+
+Batch F adds ordinary-QR metadata calculation and atomic reservation resolution.
+All 32 error-correction-level/mask format words are checked against Annex C, all 34
+Version 7–40 version words against Annex D, and all 1,280 version/level/mask matrix
+combinations for exact redundant placement and confinement. This is a low-level
+construction primitive: the authoritative composition with the matching data mask
+remains part of Phase 3.
 
 ### Phase 3 — mask selection and hardening
 
