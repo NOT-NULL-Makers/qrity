@@ -17,7 +17,7 @@
    :q 3
    :h 2})
 
-(s/def ::mask-reference (s/int-in 0 8))
+(s/def ::mask-reference ::parameters/mask-reference)
 (s/def ::format-information-bits
   (s/coll-of #{0 1}
              :kind vector?

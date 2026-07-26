@@ -452,19 +452,6 @@
        (= coordinates (traverse-data-coordinates matrix))
        (placement-matches-message-bits? ret message-bits)))))
 
-(defn apply-mask-2
-  "Applies data mask reference 010 only to placed encoding modules."
-  [matrix]
-  (mapv (fn [row]
-          (mapv (fn [column-index cell]
-                  (if (and (#{:light :dark} cell)
-                           (zero? (mod column-index 3)))
-                    (if (= :light cell) :dark :light)
-                    cell))
-                (range)
-                row))
-        matrix))
-
 (defn format-information-bits
   "Returns ordinary-QR format information, most significant bit first.
 
@@ -537,6 +524,84 @@
    (vector? value)
    (when-let [version (inferred-version value)]
      (metadata-ready-matrix-for-version? value version))))
+
+(defn- data-mask-condition?
+  [mask-reference row column]
+  (let [product (* row column)]
+    (case mask-reference
+      0 (even? (+ row column))
+      1 (even? row)
+      2 (zero? (mod column 3))
+      3 (zero? (mod (+ row column) 3))
+      4 (even? (+ (quot row 2)
+                  (quot column 3)))
+      5 (zero? (+ (mod product 2)
+                  (mod product 3)))
+      6 (even? (+ (mod product 2)
+                  (mod product 3)))
+      7 (even? (+ (mod (+ row column) 2)
+                  (mod product 3))))))
+
+(defn- toggle-module
+  [cell]
+  (if (= :light cell) :dark :light))
+
+(defn- apply-data-mask*
+  [matrix mask-reference]
+  (mapv
+   (fn [row-index row]
+     (mapv
+      (fn [column-index cell]
+        (if (and (#{:light :dark} cell)
+                 (data-mask-condition?
+                  mask-reference
+                  row-index
+                  column-index))
+          (toggle-module cell)
+          cell))
+      (range)
+      row))
+   (range)
+   matrix))
+
+(defn apply-data-mask
+  "Applies one explicit Table 10 mask as a reversible encoding-region transform.
+
+  The returned matrix is structurally metadata-ready, but its shape alone cannot
+  prove which mask was applied or whether multiple masks were composed."
+  [matrix mask-reference]
+  (when-not (metadata-ready-matrix? matrix)
+    (throw
+     (ex-info
+      "Data masking requires an exact placed matrix with unresolved metadata"
+      {:qrity/error :invalid-data-mask-matrix
+       :reason :noncanonical-metadata-ready-matrix
+       :actual-dimension (when (vector? matrix) (count matrix))
+       :clause "7.8.1"})))
+  (when-not (s/valid? ::parameters/mask-reference mask-reference)
+    (throw
+     (ex-info
+      "Ordinary QR mask reference must be an integer from 0 through 7"
+      {:qrity/error :invalid-mask-reference
+       :mask-reference mask-reference
+       :clause "7.8.2"})))
+  (apply-data-mask* matrix mask-reference))
+
+(defn data-mask-application-matches?
+  "Checks the exact relation between a placed matrix, result, and mask reference.
+
+  This relational predicate does not infer mask provenance from the result alone."
+  [before after mask-reference]
+  (and
+   (metadata-ready-matrix? before)
+   (metadata-ready-matrix? after)
+   (s/valid? ::parameters/mask-reference mask-reference)
+   (= after (apply-data-mask* before mask-reference))))
+
+(defn apply-mask-2
+  "Compatibility wrapper for ordinary QR data mask reference 010."
+  [matrix]
+  (apply-data-mask matrix 2))
 
 (defn- metadata-complete-matrix-for-version?
   [value version]
@@ -646,6 +711,17 @@
 (s/def ::metadata-ready-matrix metadata-ready-matrix?)
 (s/def ::metadata-complete-matrix metadata-complete-matrix?)
 
+(defn- data-mask-request?
+  [{:keys [matrix mask-reference]}]
+  (and
+   (metadata-ready-matrix? matrix)
+   (s/valid? ::parameters/mask-reference mask-reference)))
+
+(s/def ::data-mask-request
+  (s/and
+   (s/cat :matrix any? :mask-reference any?)
+   data-mask-request?))
+
 (defn- metadata-request?
   [{:keys [matrix error-correction-level mask-reference]}]
   (and
@@ -670,6 +746,26 @@
                 ::parameters/error-correction-level
                 :mask-reference ::metadata/mask-reference))
   :ret ::metadata/format-information-bits)
+
+(s/fdef apply-data-mask
+  :args ::data-mask-request
+  :ret ::metadata-ready-matrix
+  :fn
+  (fn [{:keys [args ret]}]
+    (data-mask-application-matches?
+     (:matrix args)
+     ret
+     (:mask-reference args))))
+
+(s/fdef apply-mask-2
+  :args (s/cat :matrix ::metadata-ready-matrix)
+  :ret ::metadata-ready-matrix
+  :fn
+  (fn [{:keys [args ret]}]
+    (data-mask-application-matches?
+     (:matrix args)
+     ret
+     2)))
 
 (s/fdef resolve-metadata
   :args ::metadata-request

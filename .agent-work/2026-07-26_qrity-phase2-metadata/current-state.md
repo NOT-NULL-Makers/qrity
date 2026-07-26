@@ -1,6 +1,6 @@
 # Current state — generalized metadata
 
-- **Status:** Handover.
+- **Status:** Complete.
 - **Foundation:** `d536ec7`.
 - **Completed:** ISO evidence map, fresh Second Opinion, bounded implementation,
   exhaustive tests, documentation, source review, Code Review corrections, settled
@@ -11,6 +11,7 @@
   independent-oracle finding and removing one unused wrapper.
 - **Final Review:** fresh separate worker, model family unknown; all criteria PASS;
   recommendation ready.
-- **Pending:** commit and human acceptance.
+- **Commit:** `fc5b78a` (`Generalize QR format and version metadata`).
+- **Pending:** human acceptance only.
 - **Cross-family limitation:** Fable is unavailable under the human-stated usage limit;
   do not retry. Ordinary independent review records model family as unknown.

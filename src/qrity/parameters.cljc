@@ -172,6 +172,7 @@
 
 (s/def ::version (s/int-in 1 41))
 (s/def ::error-correction-level error-correction-level-set)
+(s/def ::mask-reference (s/int-in 0 8))
 (s/def ::numeric-capacity pos-int?)
 (s/def ::numeric-payload
   (s/and string? #(boolean (re-matches #"[0-9]+" %))))

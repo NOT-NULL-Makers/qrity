@@ -1,6 +1,7 @@
 (ns qrity.test-runner
   (:require [cljs.test :as test]
             [qrity.encode-test]
+            [qrity.mask-test]
             [qrity.matrix-test]
             [qrity.metadata-test]
             [qrity.message-test]
@@ -23,6 +24,7 @@
   [& _]
   (test/run-tests (test/empty-env)
                   'qrity.encode-test
+                  'qrity.mask-test
                   'qrity.matrix-test
                   'qrity.metadata-test
                   'qrity.message-test

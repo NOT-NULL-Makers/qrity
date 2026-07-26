@@ -136,7 +136,8 @@ field, terminates, byte-aligns, and pads to the explicit profile. The message
 constructor partitions those codewords, generates Reed–Solomon parity independently
 for every block, interleaves data then parity, and appends the version's zero remainder
 bits. By itself it does not construct a matrix or complete Version 2–40 QR symbol;
-the placement composition is shown below, while masking and rendering remain deferred.
+the placement composition is shown below, while automatic mask selection and stable
+generalized orchestration remain deferred.
 
 The complete message can now be placed into its canonical version template:
 
@@ -173,16 +174,29 @@ After a later masking step has applied a selected mask to the encoding modules, 
 metadata reservations can be resolved atomically:
 
 ```clojure
+(def masked-matrix
+  (matrix/apply-data-mask (:matrix placement) 3))
+
 (def completed-construction-matrix
   (matrix/resolve-metadata masked-matrix :h 3))
+
+(def modules
+  (matrix/final-bit-matrix completed-construction-matrix))
 ```
 
 `resolve-metadata` infers the version from an exact construction matrix, writes both
 format copies, and writes both Version 7–40 version-information copies. It rejects
 function templates, partially resolved metadata, already completed metadata, and
-noncanonical matrices. The low-level function cannot prove that `masked-matrix` was
-actually masked with reference `3`; the next masking phase will bind those operations.
-Do not treat the current unmasked generalized placement result as a final symbol.
+noncanonical matrices. `apply-data-mask` implements all eight Table 10 references and
+changes only encoding modules. Applying the same reference twice restores the original
+placed matrix.
+
+This manual composition uses the same mask reference for the reversible transform and
+format metadata and therefore produces a complete explicit-profile module matrix. The
+low-level functions cannot infer that relationship from a matrix alone; automatic
+candidate construction, penalty scoring, mask selection, and a stable generalized
+encoder API remain deferred. Do not treat the unmasked placement result as a final
+symbol.
 
 ### Terminal Unicode
 
@@ -422,6 +436,8 @@ The shared `.cljc` implementation currently provides:
   reservations;
 - pure Clause 7.7.3 traversal and complete-message placement across those templates,
   producing unmasked pre-metadata construction matrices;
+- pure explicit application of all eight Table 10 data masks across Version 1–40
+  encoding regions, including remainder modules, with function/metadata confinement;
 - pure Annex C format calculation for all 32 level/mask combinations, Annex D version
   calculation for Versions 7–40, and atomic resolution of both redundant metadata
   copies across all ordinary versions; and
@@ -1033,7 +1049,7 @@ the stated Phase 1 exit evidence without making a conformance claim.
 Exit evidence: structural properties cover all required table rows; representative
 Numeric symbols from every version range decode independently.
 
-Current status: batches A through E are implemented. Tables 1, 7, 9, and E.1 provide the
+Current status: batches A through G are implemented. Tables 1, 7, 9, and E.1 provide the
 complete 40-version/160-level parameter catalogue. All 160 canonical Table 9
 error-correction/block-count cells and all 288 printed block-group records were
 independently reconciled. Pure data partitioning and separate data/parity interleavers
@@ -1042,8 +1058,8 @@ terminator/alignment/padding, per-block Reed–Solomon, and exact remainder-bit 
 All 160 profiles are checked against an independent data-bit/padding reference and
 independent zero-syndrome evaluation on JVM, Node, and Babashka. Every supported
 Version 1-M payload length remains byte-identical to the fixed pipeline. The existing
-complete encoder remains fixed to Version 1-M; generalized masking remains the next
-increment.
+complete encoder remains fixed to Version 1-M; automatic mask scoring and selection
+remain the next increment.
 
 Batch D adds canonical function-pattern/reservation templates for Versions 1–40:
 
@@ -1076,8 +1092,24 @@ combinations for exact redundant placement and confinement. This is a low-level
 construction primitive: the authoritative composition with the matching data mask
 remains part of Phase 3.
 
+Batch G adds explicit reversible data-mask transforms for all eight Table 10
+references:
+
+```clojure
+(def masked
+  (matrix/apply-data-mask (:matrix placement) 3))
+```
+
+Across every Version 1–40 and mask 0–7 pair, tests compare the complete transformed
+matrix with an independent Table 10 implementation, check exact changed-coordinate
+confinement, and prove involution. Literal coordinate anchors distinguish row from
+column, masks 5 from 6, and integer-division behavior; Version 2 pins masking of all
+seven remainder modules. This primitive deliberately carries no mask provenance by
+itself.
+
 ### Phase 3 — mask selection and hardening
 
+- Bind each explicit mask transform to matching candidate-specific format metadata.
 - Implement all four ordinary QR penalty rules using a direct reference scorer in tests.
 - Evaluate all eight candidates and choose deterministically.
 - Run broad generated tests across Numeric payloads, versions, levels, masks, and
