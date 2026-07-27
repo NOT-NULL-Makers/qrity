@@ -136,8 +136,8 @@ field, terminates, byte-aligns, and pads to the explicit profile. The message
 constructor partitions those codewords, generates Reed–Solomon parity independently
 for every block, interleaves data then parity, and appends the version's zero remainder
 bits. By itself it does not construct a matrix or complete Version 2–40 QR symbol;
-the placement composition is shown below, while automatic mask selection and stable
-generalized orchestration remain deferred.
+the placement and mask-candidate composition is shown below. Stable generalized
+orchestration remains deferred.
 
 The complete message can now be placed into its canonical version template:
 
@@ -193,10 +193,41 @@ placed matrix.
 
 This manual composition uses the same mask reference for the reversible transform and
 format metadata and therefore produces a complete explicit-profile module matrix. The
-low-level functions cannot infer that relationship from a matrix alone; automatic
-candidate construction, penalty scoring, mask selection, and a stable generalized
-encoder API remain deferred. Do not treat the unmasked placement result as a final
-symbol.
+low-level functions cannot infer that relationship from a matrix alone. The
+provenance-bound candidate API does:
+
+```clojure
+(require '[qrity.mask :as mask])
+
+(def candidates
+  (mask/mask-candidates final-message placement))
+
+(def selected
+  (mask/select-best-candidate final-message placement))
+
+(select-keys selected
+             [:version
+              :error-correction-level
+              :mask-reference
+              :penalties
+              :total-penalty])
+
+(def modules (:matrix selected))
+```
+
+Every candidate is rebuilt independently from the same validated final message and
+unmasked placement. It receives matching candidate-specific metadata before the four
+Clause 7.8.3 penalties are evaluated over the complete quiet-zone-free matrix.
+`mask/minimum-penalty-candidates` exposes every tied global minimum from an ordered
+candidate vector. ISO/IEC 18004 requires a lowest-scoring mask but does not specify a
+tie-break; `select-best-candidate` uses QRity's documented reproducibility policy of
+choosing the lowest numeric mask reference among tied minima.
+
+The exact N3 boundary algorithm is not fully specified by the source. QRity counts one
+penalty per `1011101` core even when both sides qualify and treats a light run reaching
+the matrix edge as continued by the required quiet zone, only for N3. This
+interpretation is pinned by tests and recorded as a source limitation. Do not treat the
+unmasked placement result as a final symbol.
 
 ### Terminal Unicode
 
@@ -438,6 +469,8 @@ The shared `.cljc` implementation currently provides:
   producing unmasked pre-metadata construction matrices;
 - pure explicit application of all eight Table 10 data masks across Version 1–40
   encoding regions, including remainder modules, with function/metadata confinement;
+- provenance-bound construction and independent N1–N4 scoring of all eight complete
+  candidates, plus all-minimum reporting and deterministic mask selection;
 - pure Annex C format calculation for all 32 level/mask combinations, Annex D version
   calculation for Versions 7–40, and atomic resolution of both redundant metadata
   copies across all ordinary versions; and
@@ -478,6 +511,46 @@ All five JVM/Node artifact pairs were byte-identical and all 20 decoder assertio
 recovered the exact payload, including leading zeros and the 34-digit capacity
 boundary. This is interoperability evidence for the fixed profile, not proof of
 ISO/IEC 18004 conformance.
+
+## Current roadmap status
+
+As of 2026-07-27, progress against the original implementation plan is:
+
+| Phase | Status | Remaining work |
+|---|---|---|
+| Phase 0 — executable Clause 7.1 walkthrough | Complete | None |
+| Phase 1 — fixed Version 1-M Numeric vertical slice | Complete | None |
+| Phase 2 — Numeric across ordinary Versions 1–40 | Nearly complete | Expose generalized orchestration and broaden decoder coverage |
+| Phase 3 — mask selection and hardening | In progress | Candidate primitives complete; permanent generalized interoperability and hardening remain |
+| Phase 4 — stable API and release evidence | Not started | Stable generalized encoder, final compatibility surface, and release documentation |
+
+The Version 1–40/L-M-Q-H parameter, Numeric message, function-matrix, placement,
+explicit-mask, format, version-information, candidate-binding, scoring, and automatic
+selection primitives are implemented. They can be composed into complete selected
+Numeric matrices. The remaining Phase 2/3 work is broader permanent decoder evidence
+and a generalized orchestration layer that owns the whole Numeric pipeline.
+
+## Requirements for practical URL encoding
+
+Typical lowercase URLs require Byte mode; QR Alphanumeric mode does not contain
+lowercase letters. The shortest path from the generalized Numeric encoder to practical
+URLs is:
+
+1. finish generalized Numeric orchestration around the completed automatic mask selector;
+2. implement Byte mode indicator `0100` and its 8-bit (Versions 1–9) or 16-bit
+   (Versions 10–40) character-count field;
+3. add Byte-capacity checks and smallest-version selection for each correction level;
+4. expose a stable `encode` API returning selected mode, version, level, mask, segments,
+   and binary matrix; and
+5. verify URL boundary cases with independent decoders across version/count-width
+   transitions and correction levels.
+
+Without ECI, the initial text contract will accept ASCII URLs directly. International
+domain names can use Punycode and non-ASCII URL components can be UTF-8
+percent-encoded, leaving an ASCII QR payload. Other non-ASCII input should fail
+explicitly until the project deliberately adopts an interoperable UTF-8 convention or
+a verified UTF-8 ECI assignment. Alphanumeric mode can be added later as a capacity
+optimization for compatible uppercase payloads; it is not required for general URLs.
 
 ## Non-goals
 
@@ -670,7 +743,7 @@ directly before abstractions or optimizations obscure it:
 | 3. Error-correction coding | Calculate the Version 1-M Reed–Solomon parity | Data and error-correction block vectors |
 | 4. Final message construction | Interleave codewords and append required remainder bits | Final message bit vector |
 | 5. Module placement | Construct/reserve the 21×21 function matrix and place message bits | Unmasked row-major matrix |
-| 6. Data masking | Apply pinned mask reference `2` first; later build and score all eight candidates, including the candidate-specific modules needed for correct evaluation | One pinned masked matrix initially; candidate matrices and scores later |
+| 6. Data masking | The fixed pipeline applies mask `2`; generalized primitives now build and score all eight complete candidates with candidate-specific metadata | One pinned matrix in the fixed stage state; an ordered scored-candidate vector in generalized composition |
 | 7. Format and version information | Finalize Version 1 format information for the selected mask; Version 1 has no version-information field | Complete symbol matrix and metadata |
 
 The exploratory implementation can be a vector of seven pure stage functions operating
@@ -737,7 +810,8 @@ input value
 
 Phase 3 replaces the two pinned-mask steps with eight masked candidates,
 candidate-specific format information for correct scoring, deterministic selection, and
-the selected candidate's finalized format information.
+the selected candidate's finalized format information. The candidate and selection
+primitives are now implemented; stable end-to-end orchestration remains.
 
 The final symbol value should contain at least the version, error-correction level,
 selected mask, matrix, and enough segment metadata for diagnostics. The public API
@@ -758,7 +832,7 @@ src/qrity/
   reed_solomon.cljc  error-correction block encoding
   message.cljc       block partitioning and interleaving
   matrix.cljc        coordinates, reservations, placement
-  mask.cljc          mask predicates, scoring, selection
+  mask.cljc          mask predicates, complete candidates, scoring, selection
   metadata.cljc      format and version information
   encode.cljc        public pure orchestration
   render/svg.cljc    optional pure SVG representation
@@ -1049,7 +1123,7 @@ the stated Phase 1 exit evidence without making a conformance claim.
 Exit evidence: structural properties cover all required table rows; representative
 Numeric symbols from every version range decode independently.
 
-Current status: batches A through G are implemented. Tables 1, 7, 9, and E.1 provide the
+Current status: batches A through H are implemented. Tables 1, 7, 9, and E.1 provide the
 complete 40-version/160-level parameter catalogue. All 160 canonical Table 9
 error-correction/block-count cells and all 288 printed block-group records were
 independently reconciled. Pure data partitioning and separate data/parity interleavers
@@ -1058,8 +1132,8 @@ terminator/alignment/padding, per-block Reed–Solomon, and exact remainder-bit 
 All 160 profiles are checked against an independent data-bit/padding reference and
 independent zero-syndrome evaluation on JVM, Node, and Babashka. Every supported
 Version 1-M payload length remains byte-identical to the fixed pipeline. The existing
-complete encoder remains fixed to Version 1-M; automatic mask scoring and selection
-remain the next increment.
+complete encoder remains fixed to Version 1-M; stable generalized orchestration and
+broader permanent decoder coverage remain.
 
 Batch D adds canonical function-pattern/reservation templates for Versions 1–40:
 
@@ -1107,11 +1181,16 @@ column, masks 5 from 6, and integer-division behavior; Version 2 pins masking of
 seven remainder modules. This primitive deliberately carries no mask provenance by
 itself.
 
+Batch H binds every final message to its exact unmasked placement, independently
+constructs masks 0–7 with matching metadata, scores the complete candidates under
+N1–N4, exposes all tied minima, and selects deterministically. Shared tests exercise all
+1,280 version/level/mask candidates and pin the Annex I.2 mask-2 winner.
+
 ### Phase 3 — mask selection and hardening
 
-- Bind each explicit mask transform to matching candidate-specific format metadata.
-- Implement all four ordinary QR penalty rules using a direct reference scorer in tests.
-- Evaluate all eight candidates and choose deterministically.
+- Completed: bind each explicit mask transform to matching candidate-specific metadata.
+- Completed: implement all four ordinary QR penalty rules with direct reference scorers.
+- Completed: evaluate all eight candidates and choose deterministically.
 - Run broad generated tests across Numeric payloads, versions, levels, masks, and
   boundary sizes.
 - Compare exact pinned outputs with independent encoders and semantic outputs with
@@ -1176,7 +1255,7 @@ them. Each gate must close before the named commitment:
 | Fixture/table storage and validation | Open | Double-entry/table consistency experiment | Standards constants are frozen |
 | Supported language and host versions | Open | CI/runtime availability and compatibility policy | First release |
 | First-release renderer set | Open | Matrix API experience and interoperability harness needs | Release scope |
-| Mask-score tie handling | Open; standard text inspected so far gives no tie-break | Corrigenda/edition check and independent behavior survey | Automatic mask selection |
+| Mask-score tie handling | Decided for the provisional API: return all minima and choose the lowest numeric reference for deterministic selection; this is QRity policy, not an ISO rule | Revisit only if authoritative corrigenda or interoperability evidence requires another policy | Stabilizing the public API |
 
 These are design decisions, not gaps to fill with platform defaults.
 

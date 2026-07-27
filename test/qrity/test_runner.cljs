@@ -2,6 +2,7 @@
   (:require [cljs.test :as test]
             [qrity.encode-test]
             [qrity.mask-test]
+            [qrity.mask-selection-test]
             [qrity.matrix-test]
             [qrity.metadata-test]
             [qrity.message-test]
@@ -25,6 +26,7 @@
   (test/run-tests (test/empty-env)
                   'qrity.encode-test
                   'qrity.mask-test
+                  'qrity.mask-selection-test
                   'qrity.matrix-test
                   'qrity.metadata-test
                   'qrity.message-test
