@@ -7,42 +7,51 @@ APIs, or a QR encoding dependency. Shared `.cljc` code is the preferred starting
 hypothesis where the two runtimes have reliably equivalent semantics; portability does
 not require forcing every implementation detail into one shared namespace.
 
-This repository now contains a complete fixed Version 1-M Numeric vertical slice. It
-validates 1–34 ASCII digits, executes all seven ISO/IEC 18004 Clause 7.1 stages, and
-returns a fully resolved immutable 21×21 module matrix. The implementation remains
-experimental: automatic choices, other versions and modes, and bundled bitmap/DOM
-adapters are not yet implemented.
+This repository now contains a generalized Numeric generator for ordinary QR Versions
+1–40 and correction levels L/M/Q/H. It automatically chooses the smallest fitting
+version and a minimum-penalty mask, returning a fully resolved immutable module matrix.
+The original fixed Version 1-M walkthrough remains available for studying all seven
+ISO/IEC 18004 Clause 7.1 stages. The implementation remains experimental: the
+generalized API is provisional, non-Numeric modes and bundled bitmap/DOM adapters are
+not yet implemented.
 
 ## Generate a QR Code
 
-The public entry point for the currently supported profile is
-`qrity.encode/encode-numeric-v1-m`. It accepts a string containing 1–34 ASCII digits:
+The provisional general entry point is `qrity.encode/encode-numeric`. Pass a non-empty
+ASCII digit string and one of `:l`, `:m`, `:q`, or `:h`:
 
 ```clojure
 (require '[qrity.encode :as qr])
 
-(def result
-  (qr/encode-numeric-v1-m "8675309"))
-
-(def symbol (:symbol result))
+(def symbol
+  (qr/encode-numeric "86753090000000000000000000000000000" :m))
 (def modules (:matrix symbol))
 
 (select-keys symbol
              [:version :error-correction-level :mask-reference])
-;; => {:version 1, :error-correction-level :m, :mask-reference 2}
+;; => {:version 2, :error-correction-level :m, :mask-reference 3}
 
 [(count modules) (count (first modules))]
-;; => [21 21]
+;; => [25 25]
 ```
 
-`modules` is an immutable vector of 21 row vectors. Each cell is `1` for a dark
-module or `0` for a light module, with `[0 0]` at the top-left of the symbol. The
-matrix is the authoritative generated QR Code. The surrounding four-module quiet zone
-is deliberately not part of the matrix and must be added by a renderer.
+This generates a Version 2 symbol. URLs such as `"https://example.com"` are not yet
+accepted because they require Byte mode. `modules` is an immutable vector of row
+vectors. Each cell is `1` for a dark module or `0` for a light module, with `[0 0]`
+at the top-left of the symbol. The matrix is the authoritative generated QR Code. The
+surrounding four-module quiet zone is deliberately not part of the matrix and must be
+added by a renderer.
 
-The complete value returned by `encode-numeric-v1-m` also contains the intermediate
-results of all seven encoding stages. Use `(:symbol result)` when only the finished
-symbol is needed, or inspect `result` while studying and testing the pipeline.
+The exact `encode-numeric` name and return shape remain provisional. For the fixed
+Version 1-M teaching pipeline, call `encode-numeric-v1-m`; it returns the intermediate
+results of all seven stages and stores its finished symbol under `:symbol`:
+
+```clojure
+(def walkthrough
+  (qr/encode-numeric-v1-m "8675309"))
+
+(def fixed-symbol (:symbol walkthrough))
+```
 
 ### Select a catalogued Numeric version
 
@@ -75,10 +84,8 @@ and returns the smallest version whose Table 7 capacity fits:
 ;;     [{:block-count 1, :data-codeword-count-per-block 28}]}
 ```
 
-These profiles are catalogued and selectable, not yet encodable by the complete
-pipeline. Continue to call `encode-numeric-v1-m` only with 1–34 digits. The selector
-is deliberately isolated so it cannot send an unsupported Version 2–40 request into
-the fixed Version 1-M matrix and message stages.
+These profiles now feed the provisional complete `encode-numeric` orchestration. The
+selector remains separately useful for planning and capacity inspection.
 
 Table 9 block layouts and Clause 7.6 transformations are available as provisional
 pure building blocks for the generalized encoder. For example, Version 5-H has two
@@ -135,9 +142,9 @@ Numeric profile:
 field, terminates, byte-aligns, and pads to the explicit profile. The message
 constructor partitions those codewords, generates Reed–Solomon parity independently
 for every block, interleaves data then parity, and appends the version's zero remainder
-bits. By itself it does not construct a matrix or complete Version 2–40 QR symbol;
-the placement and mask-candidate composition is shown below. Stable generalized
-orchestration remains deferred.
+bits. By itself it does not construct a matrix or complete QR symbol; use
+`encode-numeric` for the provisional end-to-end composition. Stable generalized API
+design remains deferred.
 
 The complete message can now be placed into its canonical version template:
 
@@ -247,10 +254,19 @@ starting an interactive REPL:
 ```sh
 clojure -M -e \
   "(require '[qrity.encode :as qr] '[qrity.render :as render]) \
-   (-> (qr/encode-numeric-v1-m \"8675309\") \
-       (get-in [:symbol :matrix]) \
+   (-> (qr/encode-numeric \"8675309\" :m) \
+       :matrix \
        render/render-unicode \
        println)"
+```
+
+The same generalized expression can be run with Babashka:
+
+```sh
+bb -cp src -e \
+  "(require '[qrity.encode :as qr] '[qrity.render :as render]) \
+   (-> (qr/encode-numeric \"8675309\" :m) :matrix \
+       render/render-unicode println)"
 ```
 
 The renderer includes the four-module quiet zone by default. It is pure and shared
@@ -302,11 +318,27 @@ All three invoke the same shared `.cljc` encoder and PBM renderer. The ClojureSc
 script compiles the shared source and runs it on Node; the generated file is the
 runtime result rather than a JVM substitute.
 
+The additive generalized scripts accept one or more
+`LEVEL PAYLOAD OUTPUT.pbm` triples, with a lowercase `l`, `m`, `q`, or `h` level:
+
+```sh
+scripts/generate-generalized-clojure.sh m 8675309 /tmp/qrity-generalized-clojure.pbm
+scripts/generate-generalized-clojurescript.sh m 8675309 /tmp/qrity-generalized-cljs.pbm
+scripts/generate-generalized-babashka.sh m 8675309 /tmp/qrity-generalized-bb.pbm
+```
+
+Each prints the selected version, correction level, mask reference, and matrix
+dimension after writing the PBM. The fixed pair-based scripts remain useful for the
+Annex I walkthrough regression.
+
 Babashka 1.12.218 successfully encoded the leading-zero payload `00000001`. Its
 54,604-byte PBM was byte-identical to the JVM Clojure and compiled ClojureScript
-artifacts, and both ZBar and OpenCV decoded the exact payload. The full property test
-suites remain the JVM and Node-hosted ClojureScript commands documented below; the
-Babashka script is a pure-API compatibility smoke check.
+artifacts, and both ZBar and OpenCV decoded the exact payload. The full shared suite
+can also be run under Babashka with:
+
+```sh
+bb -cp src:test -m qrity.test-runner
+```
 
 This repository does not yet contain a `shadow-cljs.edn` or a Shadow CLJS dependency,
 so it intentionally does not claim a project-local Shadow build command. When QRity's
@@ -471,6 +503,8 @@ The shared `.cljc` implementation currently provides:
   encoding regions, including remainder modules, with function/metadata confinement;
 - provenance-bound construction and independent N1–N4 scoring of all eight complete
   candidates, plus all-minimum reporting and deterministic mask selection;
+- provisional pure end-to-end Numeric generation with automatic smallest-version and
+  minimum-penalty-mask selection across Versions 1–40 and levels L/M/Q/H;
 - pure Annex C format calculation for all 32 level/mask combinations, Annex D version
   calculation for Versions 7–40, and atomic resolution of both redundant metadata
   copies across all ordinary versions; and
@@ -479,10 +513,11 @@ The shared `.cljc` implementation currently provides:
 The current standards references and unresolved Annex I mask conflict are recorded in
 the [standards ledger](docs/standards-ledger.md).
 
-`encode-numeric-v1-m` returns the complete stage state; its `:symbol` entry is the
-fixed-profile result. It does not choose a version, error-correction level, mode, or
-mask. The shared JVM and Node-hosted ClojureScript tests include generated payloads,
-stage invariants, and the Annex I.2 vector and run with:
+`encode-numeric` returns the provisional generalized symbol and chooses the smallest
+version and minimum-penalty mask for the explicit correction level.
+`encode-numeric-v1-m` remains the complete fixed stage state; its `:symbol` entry is
+the fixed-profile result. The shared JVM and Node-hosted ClojureScript tests include
+generated payloads, stage invariants, and the Annex I.2 vector and run with:
 
 ```sh
 clojure -M:test
@@ -494,15 +529,26 @@ The current interoperability matrix can be reproduced on a machine with ZBar
 
 ```sh
 python3 scripts/verify_interoperability.py
+python3 scripts/verify_generalized_interoperability.py
 ```
 
-The script creates a new non-destructive evidence directory under `/tmp` by default;
-use `--output-root PATH` to select another parent. It generates five payloads through
-an actual JVM invocation and an actual ClojureScript/Node invocation, requires each
-runtime pair to be byte-identical, and decodes every artifact with both ZBar and
-OpenCV. Its JSON report records commands, exact producer/runtime/decoder versions,
-resolved decoder paths, artifact paths and hashes, and results. Missing OpenCV or
-ZBar fails with a persisted `status: failed` report in the fresh evidence directory.
+Each script creates a new non-destructive evidence directory under `/tmp` by default;
+use `--output-root PATH` to select another parent. The fixed-profile verifier generates
+five payloads through an actual JVM invocation and an actual ClojureScript/Node
+invocation, requires each runtime pair to be byte-identical, and decodes every artifact
+with both ZBar and OpenCV. JSON reports record commands, exact
+producer/runtime/decoder versions, resolved decoder paths, artifact paths and hashes,
+and results. Missing OpenCV or ZBar fails with a persisted `status: failed` report in
+the fresh evidence directory.
+
+The generalized verifier additionally generates five fixtures through JVM,
+ClojureScript/Node, and Babashka, compiles ClojureScript only once, requires each
+runtime triple to be byte-identical, checks emitted version/level/mask/dimension
+metadata, and performs 30 exact decoder assertions. Its fixtures cover all correction
+levels, leading zeros, Versions 1, 2, 7, and 10, the Version-7 metadata onset, and the
+first Numeric character-count width transition. Shared encoder tests separately
+exercise automatic transitions into Versions 27 and 40; decoder coverage for such
+dense capacity-boundary symbols remains a hardening task.
 
 The 2026-07-24 reference run used Python 3.13.5, OpenJDK 25.0.3, Clojure CLI
 1.12.4.1618, Clojure 1.12.0, ClojureScript 1.12.145, Node 20.19.2,
@@ -512,23 +558,30 @@ recovered the exact payload, including leading zeros and the 34-digit capacity
 boundary. This is interoperability evidence for the fixed profile, not proof of
 ISO/IEC 18004 conformance.
 
+The 2026-07-28 generalized reference run used the same installed JVM, Clojure,
+ClojureScript, Node, ZBar, and OpenCV versions plus Babashka 1.12.218. All five
+JVM/Node/Babashka artifact triples were byte-identical and all 30 decoder assertions
+recovered the exact payload. The JSON evidence was produced by the permanent script;
+temporary report paths printed by a run are intentionally not repository state.
+
 ## Current roadmap status
 
-As of 2026-07-27, progress against the original implementation plan is:
+As of 2026-07-28, progress against the original implementation plan is:
 
 | Phase | Status | Remaining work |
 |---|---|---|
 | Phase 0 — executable Clause 7.1 walkthrough | Complete | None |
 | Phase 1 — fixed Version 1-M Numeric vertical slice | Complete | None |
-| Phase 2 — Numeric across ordinary Versions 1–40 | Nearly complete | Expose generalized orchestration and broaden decoder coverage |
-| Phase 3 — mask selection and hardening | In progress | Candidate primitives complete; permanent generalized interoperability and hardening remain |
+| Phase 2 — Numeric across ordinary Versions 1–40 | Complete, provisional API | Stable API decisions remain Phase 4 work |
+| Phase 3 — mask selection and hardening | In progress | Broaden permanent high-density decoder coverage and optional differential checks |
 | Phase 4 — stable API and release evidence | Not started | Stable generalized encoder, final compatibility surface, and release documentation |
 
 The Version 1–40/L-M-Q-H parameter, Numeric message, function-matrix, placement,
-explicit-mask, format, version-information, candidate-binding, scoring, and automatic
-selection primitives are implemented. They can be composed into complete selected
-Numeric matrices. The remaining Phase 2/3 work is broader permanent decoder evidence
-and a generalized orchestration layer that owns the whole Numeric pipeline.
+explicit-mask, format, version-information, candidate-binding, scoring, automatic
+selection, and provisional end-to-end Numeric orchestration are implemented. Permanent
+JVM/ClojureScript/Babashka production and ZBar/OpenCV verification cover all levels
+and representative Versions 1, 2, 7, and 10. Shared tests exercise count-width
+transitions into Versions 27 and 40. The stable API remains deliberately open.
 
 ## Requirements for practical URL encoding
 
@@ -536,13 +589,12 @@ Typical lowercase URLs require Byte mode; QR Alphanumeric mode does not contain
 lowercase letters. The shortest path from the generalized Numeric encoder to practical
 URLs is:
 
-1. finish generalized Numeric orchestration around the completed automatic mask selector;
-2. implement Byte mode indicator `0100` and its 8-bit (Versions 1–9) or 16-bit
+1. implement Byte mode indicator `0100` and its 8-bit (Versions 1–9) or 16-bit
    (Versions 10–40) character-count field;
-3. add Byte-capacity checks and smallest-version selection for each correction level;
-4. expose a stable `encode` API returning selected mode, version, level, mask, segments,
+2. add Byte-capacity checks and smallest-version selection for each correction level;
+3. expose a stable `encode` API returning selected mode, version, level, mask, segments,
    and binary matrix; and
-5. verify URL boundary cases with independent decoders across version/count-width
+4. verify URL boundary cases with independent decoders across version/count-width
    transitions and correction levels.
 
 Without ECI, the initial text contract will accept ASCII URLs directly. International
@@ -738,13 +790,13 @@ directly before abstractions or optimizations obscure it:
 
 | Clause 7.1 stage | Initial transformation | Inspectable output |
 |---|---|---|
-| 1. Data analysis | Validate decimal digits and fix Version 1-M Numeric parameters | Request and one Numeric segment |
+| 1. Data analysis | Validate decimal digits; generalized generation selects the smallest Version 1–40 for explicit L/M/Q/H, while the walkthrough fixes Version 1-M | Request and one Numeric segment |
 | 2. Data encoding | Add the mode/count fields, encode digit groups, terminate, align, and pad | Bit vector and data-codeword vector |
-| 3. Error-correction coding | Calculate the Version 1-M Reed–Solomon parity | Data and error-correction block vectors |
+| 3. Error-correction coding | Calculate Reed–Solomon parity independently for each selected block | Data and error-correction block vectors |
 | 4. Final message construction | Interleave codewords and append required remainder bits | Final message bit vector |
-| 5. Module placement | Construct/reserve the 21×21 function matrix and place message bits | Unmasked row-major matrix |
-| 6. Data masking | The fixed pipeline applies mask `2`; generalized primitives now build and score all eight complete candidates with candidate-specific metadata | One pinned matrix in the fixed stage state; an ordered scored-candidate vector in generalized composition |
-| 7. Format and version information | Finalize Version 1 format information for the selected mask; Version 1 has no version-information field | Complete symbol matrix and metadata |
+| 5. Module placement | Construct/reserve the selected Version 1–40 function matrix and place message bits | Unmasked row-major matrix |
+| 6. Data masking | The fixed pipeline applies mask `2`; generalized generation builds and scores all eight complete candidates with candidate-specific metadata | One pinned matrix in the fixed stage state; a selected minimum in generalized composition |
+| 7. Format and version information | Resolve matching format information and Version 7–40 version information | Complete symbol matrix and metadata |
 
 The exploratory implementation can be a vector of seven pure stage functions operating
 on one immutable state map. This is internal scaffolding, not a frozen public API:
@@ -808,10 +860,10 @@ input value
   → optional renderer/adaptor output
 ```
 
-Phase 3 replaces the two pinned-mask steps with eight masked candidates,
-candidate-specific format information for correct scoring, deterministic selection, and
-the selected candidate's finalized format information. The candidate and selection
-primitives are now implemented; stable end-to-end orchestration remains.
+The generalized path replaces the two pinned-mask steps with eight masked candidates,
+candidate-specific format information for correct scoring, deterministic selection,
+and the selected candidate's finalized metadata. Candidate construction, selection,
+and provisional end-to-end orchestration are implemented; stable API design remains.
 
 The final symbol value should contain at least the version, error-correction level,
 selected mask, matrix, and enough segment metadata for diagnostics. The public API
@@ -1123,7 +1175,7 @@ the stated Phase 1 exit evidence without making a conformance claim.
 Exit evidence: structural properties cover all required table rows; representative
 Numeric symbols from every version range decode independently.
 
-Current status: batches A through H are implemented. Tables 1, 7, 9, and E.1 provide the
+Current status: batches A through I are implemented. Tables 1, 7, 9, and E.1 provide the
 complete 40-version/160-level parameter catalogue. All 160 canonical Table 9
 error-correction/block-count cells and all 288 printed block-group records were
 independently reconciled. Pure data partitioning and separate data/parity interleavers
@@ -1131,9 +1183,11 @@ feed selected-profile Numeric message construction with 10/12/14-bit count field
 terminator/alignment/padding, per-block Reed–Solomon, and exact remainder-bit assembly.
 All 160 profiles are checked against an independent data-bit/padding reference and
 independent zero-syndrome evaluation on JVM, Node, and Babashka. Every supported
-Version 1-M payload length remains byte-identical to the fixed pipeline. The existing
-complete encoder remains fixed to Version 1-M; stable generalized orchestration and
-broader permanent decoder coverage remain.
+Version 1-M payload length remains byte-identical to the fixed pipeline. Batch I adds
+provisional automatic end-to-end orchestration. Representative complete symbols from
+Versions 1, 2, 7, and 10 are generated identically by JVM, Node, and Babashka and
+decoded exactly by ZBar and OpenCV. Shared orchestration tests cross into Versions 27
+and 40. Stable API design and denser-symbol decoder coverage remain deferred.
 
 Batch D adds canonical function-pattern/reservation templates for Versions 1–40:
 
@@ -1186,15 +1240,20 @@ constructs masks 0–7 with matching metadata, scores the complete candidates un
 N1–N4, exposes all tied minima, and selects deterministically. Shared tests exercise all
 1,280 version/level/mask candidates and pin the Annex I.2 mask-2 winner.
 
+Batch I adds `encode-numeric`, selecting the smallest fitting version before composing
+the existing message, placement, and mask-selection primitives. Its five-key symbol is
+explicitly provisional, while the fixed Version 1-M stage walkthrough is unchanged.
+
 ### Phase 3 — mask selection and hardening
 
 - Completed: bind each explicit mask transform to matching candidate-specific metadata.
 - Completed: implement all four ordinary QR penalty rules with direct reference scorers.
 - Completed: evaluate all eight candidates and choose deterministically.
-- Run broad generated tests across Numeric payloads, versions, levels, masks, and
-  boundary sizes.
-- Compare exact pinned outputs with independent encoders and semantic outputs with
-  independent decoders.
+- Completed for Numeric: run broad generated tests across payloads, versions, levels,
+  masks, and boundary sizes.
+- Completed for Numeric: compare exact cross-runtime outputs and semantic outputs with
+  independent decoders. Differential comparison with independent encoders remains an
+  optional hardening activity, not an implementation source.
 
 Exit evidence: every generated successful symbol satisfies structural invariants and the
 interoperability matrix has no unexplained failures.

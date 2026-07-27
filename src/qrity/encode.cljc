@@ -1,8 +1,12 @@
 (ns qrity.encode
   (:require [clojure.spec.alpha :as s]
             [qrity.bits :as bits]
+            [qrity.mask :as mask]
             [qrity.matrix :as matrix]
+            [qrity.message :as message]
+            [qrity.parameters :as parameters]
             [qrity.reed-solomon :as reed-solomon]
+            [qrity.segment :as segment]
             [qrity.spec :as qspec]))
 
 (def clause-7-1-stage-order
@@ -235,6 +239,104 @@
   [digits]
   (run-complete-pipeline (numeric-v1-m-request digits)))
 
+(def ^:private numeric-symbol-keys
+  "Exact keys in the provisional generalized Numeric symbol value."
+  #{:version
+    :error-correction-level
+    :mask-reference
+    :segments
+    :matrix})
+
+(defn- encode-numeric*
+  [digits error-correction-level]
+  (let [version
+        (parameters/smallest-numeric-version
+         digits
+         error-correction-level)
+        data-codewords
+        (segment/numeric-data-codewords
+         digits
+         version
+         error-correction-level)
+        final-message
+        (message/construct-final-message
+         data-codewords
+         version
+         error-correction-level)
+        placement
+        (matrix/place-data
+         (matrix/function-matrix version)
+         (:message-bits final-message))
+        candidate
+        (mask/select-best-candidate final-message placement)]
+    {:version version
+     :error-correction-level error-correction-level
+     :mask-reference (:mask-reference candidate)
+     :segments [{:mode :numeric
+                 :digits digits}]
+     :matrix (:matrix candidate)}))
+
+(defn numeric-symbol-structure?
+  "Checks the provisional generalized Numeric symbol's structure.
+
+  This checks internal shape and smallest-version consistency for the embedded
+  digits. It does not prove that the matrix was derived from those digits; use
+  `numeric-symbol-matches?` when input-to-output provenance matters."
+  [value]
+  (try
+    (and
+     (map? value)
+     (let [version (:version value)
+           error-correction-level (:error-correction-level value)
+           segment-value (first (:segments value))
+           digits (:digits segment-value)
+           matrix-value (:matrix value)]
+       (and
+        (= numeric-symbol-keys (set (keys value)))
+        (s/valid? ::parameters/version version)
+        (s/valid? ::parameters/error-correction-level
+                  error-correction-level)
+        (s/valid? ::parameters/mask-reference
+                  (:mask-reference value))
+        (= [{:mode :numeric :digits digits}]
+           (:segments value))
+        (s/valid? ::parameters/numeric-payload digits)
+        (= version
+           (parameters/smallest-numeric-version
+            digits
+            error-correction-level))
+        (let [dimension (+ 17 (* 4 version))]
+          (and
+           (vector? matrix-value)
+           (= dimension (count matrix-value))
+           (every?
+            (fn [row]
+              (and (vector? row)
+                   (= dimension (count row))
+                   (every? #{0 1} row)))
+            matrix-value))))))
+    (catch #?(:clj Exception :cljs :default) _
+      false)))
+
+(s/def ::numeric-symbol-structure numeric-symbol-structure?)
+
+(defn numeric-symbol-matches?
+  "Checks exact provenance of a generalized Numeric symbol for explicit inputs."
+  [digits error-correction-level symbol]
+  (try
+    (= symbol (encode-numeric* digits error-correction-level))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
+      false)))
+
+(defn encode-numeric
+  "Generates one provisional ordinary-QR Numeric symbol.
+
+  Chooses the smallest fitting Version 1 through 40 and the lowest-reference
+  minimum-penalty mask for the requested correction level. The returned matrix
+  excludes the four-module quiet zone. This additive API is provisional."
+  [digits error-correction-level]
+  (encode-numeric* digits error-correction-level))
+
 (s/fdef analyze-data
   :args (s/cat :state map?)
   :ret ::qspec/analyzed-state)
@@ -274,3 +376,14 @@
 (s/fdef encode-numeric-v1-m
   :args (s/cat :digits any?)
   :ret ::qspec/final-state)
+
+(s/fdef encode-numeric
+  :args (s/cat :digits any?
+               :error-correction-level any?)
+  :ret ::numeric-symbol-structure
+  :fn
+  (fn [{:keys [args ret]}]
+    (numeric-symbol-matches?
+     (:digits args)
+     (:error-correction-level args)
+     ret)))

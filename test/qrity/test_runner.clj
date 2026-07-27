@@ -1,6 +1,7 @@
 (ns qrity.test-runner
   (:require [clojure.test :as test]
             [qrity.encode-test]
+            [qrity.generalized-encode-test]
             [qrity.mask-test]
             [qrity.mask-selection-test]
             [qrity.matrix-test]
@@ -15,6 +16,7 @@
   [& _]
   (let [{:keys [test fail error]}
         (test/run-tests 'qrity.encode-test
+                        'qrity.generalized-encode-test
                         'qrity.mask-test
                         'qrity.mask-selection-test
                         'qrity.matrix-test

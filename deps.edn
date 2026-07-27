@@ -21,8 +21,18 @@
   {:extra-paths ["test"]
    :main-opts ["-m" "qrity.interop-emit"]}
 
+  :generalized-interop-jvm
+  {:extra-paths ["test"]
+   :main-opts ["-m" "qrity.generalized-interop-emit"]}
+
   :interop-cljs
   {:extra-paths ["test"]
    :extra-deps
    {org.clojure/clojurescript {:mvn/version "1.12.145"}}
-   :main-opts ["-m" "qrity.node-interop-runner"]}}}
+   :main-opts ["-m" "qrity.node-interop-runner"]}
+
+  :generalized-interop-cljs
+  {:extra-paths ["test"]
+   :extra-deps
+   {org.clojure/clojurescript {:mvn/version "1.12.145"}}
+   :main-opts ["-m" "qrity.node-interop-runner" "--generalized"]}}}

@@ -1,8 +1,9 @@
 (ns qrity.parameters
   "Ordinary QR Code parameter catalogue and isolated Numeric version selection.
 
-  These parameters describe standard profiles. Except for Version 1-M, catalogue
-  presence does not mean that QRity can yet encode the profile."
+  These parameters describe standard profiles. The provisional generalized Numeric
+  encoder consumes them; catalogue presence is not a claim of support for other
+  modes."
   (:require [clojure.spec.alpha :as s]))
 
 (def error-correction-levels
@@ -433,8 +434,8 @@
 (defn smallest-numeric-version
   "Returns the smallest catalogued version fitting a non-empty ASCII-digit string.
 
-  This selector does not invoke the encoder; Version 1-M remains the only profile
-  currently produced by the complete QRity pipeline."
+  This selector remains isolated from encoding. The provisional generalized Numeric
+  encoder invokes it, while the inspectable stage walkthrough remains Version 1-M."
   [digits error-correction-level]
   (when-not (and (string? digits)
                  (boolean (re-matches #"[0-9]+" digits)))
