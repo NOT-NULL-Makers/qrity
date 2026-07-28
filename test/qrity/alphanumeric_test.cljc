@@ -58,22 +58,42 @@
   (is (= table-5-repertoire bits/alphanumeric-repertoire))
   (is (= 45 (count table-5-repertoire)))
   (is (= 45 (count (set table-5-repertoire))))
-  (doseq [value (range 45)
-          :let [character (nth table-5-repertoire value)
-                payload (str character)]]
-    (testing (pr-str payload)
-      (is (= (reference-integer-bits value 6)
-             (bits/alphanumeric-data-bits payload)))))
-  (doseq [first-value (range 45)
-          second-value (range 45)
-          :let [payload
-                (str
-                 (nth table-5-repertoire first-value)
-                 (nth table-5-repertoire second-value))
-                pair-value (+ (* 45 first-value) second-value)]]
-    (testing (pr-str [first-value second-value payload])
-      (is (= (reference-integer-bits pair-value 11)
-             (bits/alphanumeric-data-bits payload))))))
+  (let [mismatches
+        (->> (range 45)
+             (keep
+              (fn [value]
+                (let [payload (str (nth table-5-repertoire value))
+                      expected (reference-integer-bits value 6)
+                      actual (bits/alphanumeric-data-bits payload)]
+                  (when-not (= expected actual)
+                    {:value value
+                     :payload payload
+                     :expected expected
+                     :actual actual}))))
+             vec)]
+    (is (empty? mismatches)
+        (pr-str {:table-5-singleton-mismatches mismatches})))
+  (doseq [first-value (range 45)]
+    (let [mismatches
+          (->> (range 45)
+               (keep
+                (fn [second-value]
+                  (let [payload
+                        (str
+                         (nth table-5-repertoire first-value)
+                         (nth table-5-repertoire second-value))
+                        pair-value (+ (* 45 first-value) second-value)
+                        expected (reference-integer-bits pair-value 11)
+                        actual (bits/alphanumeric-data-bits payload)]
+                    (when-not (= expected actual)
+                      {:coordinates [first-value second-value]
+                       :payload payload
+                       :expected expected
+                       :actual actual}))))
+               vec)]
+      (is (empty? mismatches)
+          (pr-str {:table-5-pair-row first-value
+                   :mismatches mismatches})))))
 
 (deftest clause-7-4-4-example-and-edge-vectors-match
   (is (=

@@ -40,3 +40,11 @@
   remained unavailable under the human's Fable limit; the requested reviewer
   profile was recorded as requested-only and the effective pair as inherited or
   unknown.
+- The bounded Stage 2 change was committed as `3bbcc26`.
+- At human request, the exhaustive singleton/pair assertions were reorganized
+  into one singleton diagnostic and 45 pair-matrix row diagnostics. All 2,070
+  cases remain evaluated, while the Alphanumeric namespace fell from 2,152 to
+  128 reported assertions.
+- The assertion aggregation passed the full JVM suite (99 tests / 65,599
+  assertions) and focused Babashka and ClojureScript runs (6 tests / 128
+  assertions each), all with zero failures and zero errors.
