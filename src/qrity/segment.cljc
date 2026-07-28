@@ -1,5 +1,5 @@
 (ns qrity.segment
-  "Pure selected-profile Numeric segment and data-codeword construction."
+  "Pure selected-profile single-segment data and codeword construction."
   (:require [clojure.spec.alpha :as s]
             [qrity.bits :as bits]
             [qrity.parameters :as parameters]))
@@ -29,6 +29,18 @@
     (and (int? version) (<= 1 version 9)) 10
     (and (int? version) (<= 10 version 26)) 12
     (and (int? version) (<= 27 version 40)) 14
+    :else
+    (fail! :invalid-version
+           "Ordinary QR version must be an integer from 1 through 40"
+           {:version version})))
+
+(defn alphanumeric-character-count-bit-width
+  "Returns the ordinary-QR Alphanumeric character-count width for `version`."
+  [version]
+  (cond
+    (and (int? version) (<= 1 version 9)) 9
+    (and (int? version) (<= 10 version 26)) 11
+    (and (int? version) (<= 27 version 40)) 13
     :else
     (fail! :invalid-version
            "Ordinary QR version must be an integer from 1 through 40"
@@ -69,10 +81,69 @@
     (bits/pad-data-codewords segment-bits
                              (:data-codeword-count profile))))
 
+(defn- selected-alphanumeric-profile
+  [payload version error-correction-level]
+  (let [data-bits (bits/alphanumeric-data-bits payload)
+        profile
+        (parameters/ordinary-qr-parameters
+         version error-correction-level)
+        capacity (:alphanumeric-capacity profile)
+        character-count (count payload)]
+    (when (> character-count capacity)
+      (fail! :payload-too-large
+             "Alphanumeric payload exceeds the selected ordinary QR profile"
+             {:mode :alphanumeric
+              :character-count character-count
+              :version version
+              :error-correction-level error-correction-level
+              :maximum-capacity capacity}))
+    [profile data-bits]))
+
+(defn alphanumeric-segment-bits
+  "Builds one unpadded Alphanumeric segment for a canonical version/level."
+  [payload version error-correction-level]
+  (let [[_ data-bits]
+        (selected-alphanumeric-profile
+         payload version error-correction-level)]
+    (into
+     [0 0 1 0]
+     (concat
+      (bits/unsigned-integer->bits
+       (count payload)
+       (alphanumeric-character-count-bit-width version))
+      data-bits))))
+
+(defn alphanumeric-data-codewords
+  "Builds exactly the selected profile's padded Alphanumeric data codewords."
+  [payload version error-correction-level]
+  (let [[profile data-bits]
+        (selected-alphanumeric-profile
+         payload version error-correction-level)
+        segment-bits
+        (into
+         [0 0 1 0]
+         (concat
+          (bits/unsigned-integer->bits
+           (count payload)
+           (alphanumeric-character-count-bit-width version))
+          data-bits))]
+    (bits/pad-data-codewords
+     segment-bits
+     (:data-codeword-count profile))))
+
 (defn numeric-request?
   [{:keys [digits version error-correction-level]}]
   (try
     (selected-profile digits version error-correction-level)
+    true
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
+      false)))
+
+(defn alphanumeric-request?
+  [{:keys [payload version error-correction-level]}]
+  (try
+    (selected-alphanumeric-profile
+     payload version error-correction-level)
     true
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
       false)))
@@ -83,6 +154,12 @@
           :version any?
           :error-correction-level any?)
    numeric-request?))
+(s/def ::alphanumeric-request
+  (s/and
+   (s/cat :payload any?
+          :version any?
+          :error-correction-level any?)
+   alphanumeric-request?))
 (s/def ::segment-bits
   (s/coll-of #{0 1} :kind vector? :min-count 1))
 (s/def ::data-codewords
@@ -96,4 +173,16 @@
 
 (s/fdef numeric-data-codewords
   :args ::numeric-request
+  :ret ::data-codewords)
+
+(s/fdef alphanumeric-character-count-bit-width
+  :args (s/cat :version any?)
+  :ret pos-int?)
+
+(s/fdef alphanumeric-segment-bits
+  :args ::alphanumeric-request
+  :ret ::segment-bits)
+
+(s/fdef alphanumeric-data-codewords
+  :args ::alphanumeric-request
   :ret ::data-codewords)

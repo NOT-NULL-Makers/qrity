@@ -36,11 +36,12 @@
      (.writeFileSync (js/require "fs") path value "utf8")))
 
 (defn- emit!
-  [level-name payload output-path]
+  [mode level-name payload output-path]
   (let [symbol
-        (encode/encode-numeric
-         payload
-         (error-correction-level level-name))
+        ((case mode
+           :numeric encode/encode-numeric
+           :alphanumeric encode/encode-alphanumeric)
+         payload (error-correction-level level-name))
         dimension (count (:matrix symbol))]
     (write-utf-8!
      output-path
@@ -51,12 +52,23 @@
           (:version symbol) "\t"
           (name (:error-correction-level symbol)) "\t"
           (:mask-reference symbol) "\t"
-          dimension))))
+          dimension))
+    (when (= :alphanumeric mode)
+      (println
+       (str "qrity-alphanumeric="
+            output-path "\t"
+            (:version symbol) "\t"
+            (name (:error-correction-level symbol)) "\t"
+            (:mask-reference symbol) "\t"
+            dimension)))))
 
 (defn -main
   [& arguments]
-  (doseq [[level-name payload output-path]
-          (argument-triples arguments)]
-    (emit! level-name payload output-path)))
+  (let [alphanumeric? (= "--alphanumeric" (first arguments))
+        mode (if alphanumeric? :alphanumeric :numeric)
+        arguments (if alphanumeric? (rest arguments) arguments)]
+    (doseq [[level-name payload output-path]
+            (argument-triples arguments)]
+      (emit! mode level-name payload output-path))))
 
 #?(:cljs (set! *main-cli-fn* -main))

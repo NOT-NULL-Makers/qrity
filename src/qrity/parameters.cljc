@@ -1,9 +1,9 @@
 (ns qrity.parameters
   "Ordinary QR Code parameter catalogue and single-segment capacity selection.
 
-  The provisional generalized Numeric encoder consumes these parameters.
-  Alphanumeric and Byte catalogue presence supports planning and is not a claim
-  that those modes can already be encoded."
+  The provisional Numeric and Alphanumeric encoders consume these parameters.
+  Byte catalogue presence supports planning and is not a claim that Byte mode
+  can already be encoded."
   (:require [clojure.spec.alpha :as s]))
 
 (def error-correction-levels

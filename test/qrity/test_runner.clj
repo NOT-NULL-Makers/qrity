@@ -1,5 +1,7 @@
 (ns qrity.test-runner
   (:require [clojure.test :as test]
+            [qrity.alphanumeric-encode-test]
+            [qrity.alphanumeric-segment-test]
             [qrity.alphanumeric-test]
             [qrity.encode-test]
             [qrity.generalized-encode-test]
@@ -16,7 +18,9 @@
 (defn -main
   [& _]
   (let [{:keys [test fail error]}
-        (test/run-tests 'qrity.alphanumeric-test
+        (test/run-tests 'qrity.alphanumeric-encode-test
+                        'qrity.alphanumeric-segment-test
+                        'qrity.alphanumeric-test
                         'qrity.encode-test
                         'qrity.generalized-encode-test
                         'qrity.mask-test

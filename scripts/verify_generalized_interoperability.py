@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify generalized Numeric QR generation across three runtimes and two decoders."""
+"""Verify single-segment QR generation across three runtimes and two decoders."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def repeated_digits(length: int) -> str:
     return (pattern * ((length + len(pattern) - 1) // len(pattern)))[:length]
 
 
-FIXTURES = (
+NUMERIC_FIXTURES = (
     {
         "label": "minimum-m",
         "level": "m",
@@ -64,6 +64,61 @@ FIXTURES = (
     },
 )
 
+ALPHANUMERIC_REPERTOIRE = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:"
+
+
+def repeated_alphanumeric(length: int) -> str:
+    repetitions = (
+        length + len(ALPHANUMERIC_REPERTOIRE) - 1
+    ) // len(ALPHANUMERIC_REPERTOIRE)
+    return (ALPHANUMERIC_REPERTOIRE * repetitions)[:length]
+
+
+ALPHANUMERIC_FIXTURES = (
+    {
+        "label": "minimum-m",
+        "level": "m",
+        "payload": "A",
+        "expected_version": 1,
+        "expected_mask_reference": 3,
+    },
+    {
+        "label": "table-5-example-q",
+        "level": "q",
+        "payload": "AC-42",
+        "expected_version": 1,
+        "expected_mask_reference": 3,
+    },
+    {
+        "label": "all-repertoire-l",
+        "level": "l",
+        "payload": ALPHANUMERIC_REPERTOIRE,
+        "expected_version": 2,
+        "expected_mask_reference": 5,
+    },
+    {
+        "label": "maximum-v1-h",
+        "level": "h",
+        "payload": repeated_alphanumeric(10),
+        "expected_version": 1,
+        "expected_mask_reference": 7,
+    },
+    {
+        "label": "version-7-q",
+        "level": "q",
+        "payload": repeated_alphanumeric(109),
+        "expected_version": 7,
+        "expected_mask_reference": 0,
+    },
+    {
+        "label": "version-10-m",
+        "level": "m",
+        "payload": repeated_alphanumeric(263),
+        "expected_version": 10,
+        "expected_mask_reference": 4,
+    },
+)
+
 RUNTIMES = {
     "jvm": "scripts/generate-generalized-clojure.sh",
     "node": "scripts/generate-generalized-clojurescript.sh",
@@ -73,9 +128,14 @@ RUNTIMES = {
 METADATA_PREFIX = "qrity-generalized="
 
 
-def generation_arguments(run_directory: Path, runtime: str) -> list[str]:
-    arguments: list[str] = []
-    for fixture in FIXTURES:
+def generation_arguments(
+    run_directory: Path,
+    runtime: str,
+    mode: str = "numeric",
+    fixtures: tuple[dict[str, Any], ...] = NUMERIC_FIXTURES,
+) -> list[str]:
+    arguments: list[str] = ["--alphanumeric"] if mode == "alphanumeric" else []
+    for fixture in fixtures:
         arguments.extend(
             [
                 str(fixture["level"]),
@@ -87,13 +147,15 @@ def generation_arguments(run_directory: Path, runtime: str) -> list[str]:
 
 
 def parse_metadata(
-    stdout: str, expected_paths: set[Path]
+    stdout: str,
+    expected_paths: set[Path],
+    metadata_prefix: str = METADATA_PREFIX,
 ) -> dict[Path, dict[str, Any]]:
     result: dict[Path, dict[str, Any]] = {}
     for line in stdout.splitlines():
-        if not line.startswith(METADATA_PREFIX):
+        if not line.startswith(metadata_prefix):
             continue
-        fields = line.removeprefix(METADATA_PREFIX).split("\t")
+        fields = line.removeprefix(metadata_prefix).split("\t")
         if len(fields) != 5:
             raise VerificationFailure(f"malformed emitter metadata line: {line!r}")
         path_text, version, level, mask_reference, dimension = fields
@@ -141,28 +203,54 @@ def validate_fixture_metadata(
         )
 
 
-def verify(output_root: Path) -> tuple[Path, dict[str, Any]]:
+def verify(
+    output_root: Path, mode: str = "numeric"
+) -> tuple[Path, dict[str, Any]]:
     repository = Path(__file__).resolve().parent.parent
+    fixtures = (
+        ALPHANUMERIC_FIXTURES
+        if mode == "alphanumeric"
+        else NUMERIC_FIXTURES
+    )
+    metadata_prefix = (
+        "qrity-alphanumeric="
+        if mode == "alphanumeric"
+        else METADATA_PREFIX
+    )
     output_root.mkdir(parents=True, exist_ok=True)
     run_directory = Path(
-        tempfile.mkdtemp(prefix="qrity-generalized-interop-", dir=output_root)
+        tempfile.mkdtemp(
+            prefix=(
+                "qrity-generalized-interop-"
+                if mode == "numeric"
+                else "qrity-alphanumeric-interop-"
+            ),
+            dir=output_root,
+        )
     ).resolve()
     commands: list[dict[str, Any]] = []
     report: dict[str, Any] = {
         "status": "running",
         "repository": str(repository),
         "run_directory": str(run_directory),
-        "fixtures": list(FIXTURES),
+        "mode": mode,
+        "fixtures": list(fixtures),
         "coverage": {
             "error_correction_levels": ["l", "m", "q", "h"],
-            "leading_zeros": True,
+            "leading_zeros": mode == "numeric",
+            "table_5_repertoire": mode == "alphanumeric",
             "version_transitions": [
                 "1-to-2",
                 "6-to-7",
                 "9-to-10",
             ],
             "version_information_onset": 7,
-            "numeric_count_width_transition": "9-to-10",
+            "count_width_transition": "9-to-10",
+            **(
+                {"numeric_count_width_transition": "9-to-10"}
+                if mode == "numeric"
+                else {"alphanumeric_count_width_transition": "9-to-10"}
+            ),
         },
         "renderer": {
             "format": "Plain PBM P1",
@@ -222,15 +310,18 @@ def verify(output_root: Path) -> tuple[Path, dict[str, Any]]:
         for runtime, script in RUNTIMES.items():
             expected_paths = {
                 (run_directory / f"{runtime}-{fixture['label']}.pbm").resolve()
-                for fixture in FIXTURES
+                for fixture in fixtures
             }
             generation = run_command(
-                [script] + generation_arguments(run_directory, runtime),
+                [script]
+                + generation_arguments(
+                    run_directory, runtime, mode, fixtures
+                ),
                 repository,
                 commands,
             )
             runtime_metadata[runtime] = parse_metadata(
-                generation.stdout, expected_paths
+                generation.stdout, expected_paths, metadata_prefix
             )
             if runtime == "node":
                 prefix = "qrity-clojurescript-version="
@@ -245,7 +336,7 @@ def verify(output_root: Path) -> tuple[Path, dict[str, Any]]:
                     )
                 report["versions"]["clojurescript"] = versions[0]
 
-        for fixture in FIXTURES:
+        for fixture in fixtures:
             label = str(fixture["label"])
             payload = str(fixture["payload"])
             paths = {
@@ -292,10 +383,10 @@ def verify(output_root: Path) -> tuple[Path, dict[str, Any]]:
                 )
 
         report["summary"] = {
-            "fixture_count": len(FIXTURES),
-            "runtime_artifact_count": len(FIXTURES) * len(RUNTIMES),
-            "decode_assertion_count": len(FIXTURES) * len(RUNTIMES) * 2,
-            "runtime_triples_byte_identical": len(FIXTURES),
+            "fixture_count": len(fixtures),
+            "runtime_artifact_count": len(fixtures) * len(RUNTIMES),
+            "decode_assertion_count": len(fixtures) * len(RUNTIMES) * 2,
+            "runtime_triples_byte_identical": len(fixtures),
         }
         report["status"] = "passed"
         return run_directory, report
@@ -322,12 +413,26 @@ def main() -> None:
         default=Path("/tmp"),
         help="parent directory for a new non-destructive evidence directory",
     )
+    parser.add_argument(
+        "--mode",
+        choices=("numeric", "alphanumeric"),
+        default="numeric",
+        help="single-segment mode to verify",
+    )
     arguments = parser.parse_args()
     try:
-        run_directory, report = verify(arguments.output_root.resolve())
+        run_directory, report = verify(
+            arguments.output_root.resolve(), arguments.mode
+        )
     except VerificationFailure:
         raise SystemExit(1) from None
-    print(f"generalized interoperability: {report['status']}")
+    if arguments.mode == "numeric":
+        print(f"generalized interoperability: {report['status']}")
+    else:
+        print(
+            f"generalized {arguments.mode} interoperability: "
+            f"{report['status']}"
+        )
     print(f"artifacts: {run_directory}")
     print(f"report: {run_directory / 'report.json'}")
 

@@ -239,8 +239,8 @@
   [digits]
   (run-complete-pipeline (numeric-v1-m-request digits)))
 
-(def ^:private numeric-symbol-keys
-  "Exact keys in the provisional generalized Numeric symbol value."
+(def ^:private symbol-keys
+  "Exact keys in a provisional generalized single-segment symbol value."
   #{:version
     :error-correction-level
     :mask-reference
@@ -288,6 +288,44 @@
        :digits digits}]
      data-codewords)))
 
+(defn- smallest-alphanumeric-version
+  [payload error-correction-level]
+  ;; Validate before count-based catalogue selection. The catalogue selector
+  ;; intentionally knows counts, not the Table 5 repertoire.
+  (bits/alphanumeric-data-bits payload)
+  (try
+    (parameters/smallest-version-for-count
+     :alphanumeric
+     (count payload)
+     error-correction-level)
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (let [data (ex-data error)]
+        (if (= :payload-too-large (:qrity/error data))
+          (throw
+           (ex-info
+            "Alphanumeric payload exceeds ordinary QR Version 40 capacity"
+            (-> data
+                (assoc :character-count (count payload))
+                (dissoc :input-count))))
+          (throw error))))))
+
+(defn- encode-alphanumeric*
+  [payload error-correction-level]
+  (let [version
+        (smallest-alphanumeric-version
+         payload error-correction-level)
+        data-codewords
+        (segment/alphanumeric-data-codewords
+         payload
+         version
+         error-correction-level)]
+    (compose-symbol
+     version
+     error-correction-level
+     [{:mode :alphanumeric
+       :payload payload}]
+     data-codewords)))
+
 (defn numeric-symbol-structure?
   "Checks the provisional generalized Numeric symbol's structure.
 
@@ -304,7 +342,7 @@
            digits (:digits segment-value)
            matrix-value (:matrix value)]
        (and
-        (= numeric-symbol-keys (set (keys value)))
+        (= symbol-keys (set (keys value)))
         (s/valid? ::parameters/version version)
         (s/valid? ::parameters/error-correction-level
                   error-correction-level)
@@ -332,11 +370,66 @@
 
 (s/def ::numeric-symbol-structure numeric-symbol-structure?)
 
+(defn alphanumeric-symbol-structure?
+  "Checks the provisional generalized Alphanumeric symbol's structure.
+
+  This checks shape and smallest-version consistency. Use
+  `alphanumeric-symbol-matches?` when input-to-output provenance matters."
+  [value]
+  (try
+    (and
+     (map? value)
+     (let [version (:version value)
+           error-correction-level (:error-correction-level value)
+           segment-value (first (:segments value))
+           payload (:payload segment-value)
+           matrix-value (:matrix value)]
+       (and
+        (= symbol-keys (set (keys value)))
+        (s/valid? ::parameters/version version)
+        (s/valid? ::parameters/error-correction-level
+                  error-correction-level)
+        (s/valid? ::parameters/mask-reference
+                  (:mask-reference value))
+        (= [{:mode :alphanumeric :payload payload}]
+           (:segments value))
+        (s/valid? ::bits/alphanumeric-payload payload)
+        (= version
+           (smallest-alphanumeric-version
+            payload
+            error-correction-level))
+        (let [dimension (+ 17 (* 4 version))]
+          (and
+           (vector? matrix-value)
+           (= dimension (count matrix-value))
+           (every?
+            (fn [row]
+              (and
+               (vector? row)
+               (= dimension (count row))
+               (every? #{0 1} row)))
+            matrix-value))))))
+    (catch #?(:clj Exception :cljs :default) _
+      false)))
+
+(s/def ::alphanumeric-symbol-structure
+  alphanumeric-symbol-structure?)
+
 (defn numeric-symbol-matches?
   "Checks exact provenance of a generalized Numeric symbol for explicit inputs."
   [digits error-correction-level symbol]
   (try
     (= symbol (encode-numeric* digits error-correction-level))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
+      false)))
+
+(defn alphanumeric-symbol-matches?
+  "Checks exact provenance of an Alphanumeric symbol for explicit inputs."
+  [payload error-correction-level symbol]
+  (try
+    (= symbol
+       (encode-alphanumeric*
+        payload error-correction-level))
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
       false)))
 
@@ -348,6 +441,15 @@
   excludes the four-module quiet zone. This additive API is provisional."
   [digits error-correction-level]
   (encode-numeric* digits error-correction-level))
+
+(defn encode-alphanumeric
+  "Generates one provisional ordinary-QR Alphanumeric symbol.
+
+  Chooses the smallest fitting Version 1 through 40 and the lowest-reference
+  minimum-penalty mask for the requested correction level. The returned matrix
+  excludes the four-module quiet zone. This additive API is provisional."
+  [payload error-correction-level]
+  (encode-alphanumeric* payload error-correction-level))
 
 (s/fdef analyze-data
   :args (s/cat :state map?)
@@ -397,5 +499,16 @@
   (fn [{:keys [args ret]}]
     (numeric-symbol-matches?
      (:digits args)
+     (:error-correction-level args)
+     ret)))
+
+(s/fdef encode-alphanumeric
+  :args (s/cat :payload any?
+               :error-correction-level any?)
+  :ret ::alphanumeric-symbol-structure
+  :fn
+  (fn [{:keys [args ret]}]
+    (alphanumeric-symbol-matches?
+     (:payload args)
      (:error-correction-level args)
      ret)))
