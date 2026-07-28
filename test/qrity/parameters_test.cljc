@@ -61,6 +61,14 @@
   [character-count]
   (apply str (repeat character-count "1")))
 
+(defn equality-mismatch
+  [context invariant expected actual]
+  (when-not (= expected actual)
+    (assoc context
+           :invariant invariant
+           :expected expected
+           :actual actual)))
+
 (deftest catalogue-covers-every-ordinary-version-and-level-once
   (is (= (vec (range 1 41))
          (mapv :version parameters/ordinary-qr-versions)))
@@ -68,12 +76,26 @@
   (is (s/valid? ::parameters/catalogue
                 parameters/ordinary-qr-versions))
   (doseq [{:keys [version levels]} parameters/ordinary-qr-versions]
-    (testing (str "version " version)
-      (is (= #{:l :m :q :h} (set (keys levels))))
-      (is (= 4 (count levels)))
-      (doseq [level parameters/error-correction-levels]
-        (is (s/valid? ::parameters/ordinary-qr-parameters
-                      (parameters/ordinary-qr-parameters version level)))))))
+    (let [context {:version version}
+          mismatches
+          (into
+           []
+           (keep identity)
+           (concat
+            [(equality-mismatch
+              context :level-set #{:l :m :q :h} (set (keys levels)))
+             (equality-mismatch context :level-count 4 (count levels))]
+            (for [level parameters/error-correction-levels]
+              (equality-mismatch
+               (assoc context :level level)
+               :parameter-spec
+               true
+               (s/valid?
+                ::parameters/ordinary-qr-parameters
+                (parameters/ordinary-qr-parameters version level))))))]
+      (is (empty? mismatches)
+          (pr-str {:catalogue-version version
+                   :mismatches mismatches})))))
 
 (deftest table-one-and-derived-version-facts-are-consistent
   (let [expected-totals
@@ -93,11 +115,23 @@
                   (<= version 27) 4
                   (<= version 34) 3
                   :else 0)]]
-    (testing (str "version " version)
-      (is (= (+ 17 (* 4 version)) (:dimension facts)))
-      (is (= expected-remainder (:remainder-bit-count facts)))
-      (is (= (<= 7 version)
-             (:version-information-required? facts))))))
+    (let [context {:version version}
+          mismatches
+          (into
+           []
+           (keep identity)
+           [(equality-mismatch
+             context :dimension
+             (+ 17 (* 4 version)) (:dimension facts))
+            (equality-mismatch
+             context :remainder-bit-count
+             expected-remainder (:remainder-bit-count facts))
+            (equality-mismatch
+             context :version-information-required
+             (<= 7 version) (:version-information-required? facts))])]
+      (is (empty? mismatches)
+          (pr-str {:version-facts version
+                   :mismatches mismatches})))))
 
 (deftest alignment-center-catalogue-follows-annex-e-shape
   (doseq [version (range 1 41)
@@ -112,127 +146,244 @@
                   (<= version 27) 5
                   (<= version 34) 6
                   :else 7)]]
-    (testing (str "version " version)
-      (is (= expected-center-count (count alignment-pattern-centers)))
-      (is (= alignment-pattern-centers
-             (vec (sort (distinct alignment-pattern-centers)))))
-      (if (= version 1)
-        (is (empty? alignment-pattern-centers))
-        (do
-          (is (= 6 (first alignment-pattern-centers)))
-          (is (= (- dimension 7)
-                 (peek alignment-pattern-centers))))))))
+    (let [context {:version version}
+          common
+          [(equality-mismatch
+            context :alignment-center-count
+            expected-center-count (count alignment-pattern-centers))
+           (equality-mismatch
+            context :alignment-centers-sorted-distinct
+            alignment-pattern-centers
+            (vec (sort (distinct alignment-pattern-centers))))]
+          boundary
+          (if (= version 1)
+            [(equality-mismatch
+              context :version-one-centers [] alignment-pattern-centers)]
+            [(equality-mismatch
+              context :first-alignment-center 6
+              (first alignment-pattern-centers))
+             (equality-mismatch
+              context :last-alignment-center (- dimension 7)
+              (peek alignment-pattern-centers))])
+          mismatches
+          (into [] (keep identity) (concat common boundary))]
+      (is (empty? mismatches)
+          (pr-str {:alignment-version version
+                   :mismatches mismatches})))))
 
 (deftest every-printed-numeric-capacity-matches-independent-bit-accounting
-  (doseq [version (range 1 41)
-          level parameters/error-correction-levels
-          :let [{:keys [data-codeword-count
-                        numeric-capacity
-                        total-codeword-count
-                        error-correction-codeword-count
-                        error-correction-block-count
-                        error-correction-codeword-count-per-block
-                        block-groups]}
-                (parameters/ordinary-qr-parameters version level)
-                capacity-bits (* 8 data-codeword-count)
-                block-lengths
-                (into []
-                      (mapcat
-                       (fn [{:keys [block-count
-                                    data-codeword-count-per-block]}]
-                         (repeat block-count
-                                 data-codeword-count-per-block)))
-                      block-groups)]]
-    (testing (pr-str [version level])
-      (is (<= (numeric-segment-bit-count version numeric-capacity)
-              capacity-bits))
-      (is (< capacity-bits
-             (numeric-segment-bit-count version (inc numeric-capacity))))
-      (is (= numeric-capacity
-             (parameters/numeric-capacity version level)
-             (parameters/input-capacity :numeric version level)))
-      (is (= total-codeword-count
-             (+ data-codeword-count
-                error-correction-codeword-count)))
-      (is (= error-correction-codeword-count
-             (* error-correction-block-count
-                error-correction-codeword-count-per-block)))
-      (is (= error-correction-block-count (count block-lengths)))
-      (is (= data-codeword-count (reduce + block-lengths)))
-      (is (apply <= block-lengths))
-      (is (<= (- (peek block-lengths) (first block-lengths)) 1)))))
+  (doseq [version (range 1 41)]
+    (let [mismatches
+          (into
+           []
+           (comp
+            (mapcat
+             (fn [level]
+               (let [{:keys [data-codeword-count
+                             numeric-capacity
+                             total-codeword-count
+                             error-correction-codeword-count
+                             error-correction-block-count
+                             error-correction-codeword-count-per-block
+                             block-groups]}
+                     (parameters/ordinary-qr-parameters version level)
+                     capacity-bits (* 8 data-codeword-count)
+                     block-lengths
+                     (into []
+                           (mapcat
+                            (fn [{:keys
+                                  [block-count
+                                   data-codeword-count-per-block]}]
+                              (repeat
+                               block-count
+                               data-codeword-count-per-block)))
+                           block-groups)
+                     context {:version version :level level}]
+                 [(equality-mismatch
+                   context :capacity-fits true
+                   (<= (numeric-segment-bit-count
+                        version numeric-capacity)
+                       capacity-bits))
+                  (equality-mismatch
+                   context :capacity-plus-one-does-not-fit true
+                   (< capacity-bits
+                      (numeric-segment-bit-count
+                       version (inc numeric-capacity))))
+                  (equality-mismatch
+                   context :capacity-lookups
+                   [numeric-capacity numeric-capacity]
+                   [(parameters/numeric-capacity version level)
+                    (parameters/input-capacity
+                     :numeric version level)])
+                  (equality-mismatch
+                   context :total-codeword-conservation
+                   total-codeword-count
+                   (+ data-codeword-count
+                      error-correction-codeword-count))
+                  (equality-mismatch
+                   context :error-correction-codeword-total
+                   error-correction-codeword-count
+                   (* error-correction-block-count
+                      error-correction-codeword-count-per-block))
+                  (equality-mismatch
+                   context :block-count
+                   error-correction-block-count
+                   (count block-lengths))
+                  (equality-mismatch
+                   (assoc context :block-lengths block-lengths)
+                   :data-block-total
+                   data-codeword-count
+                   (reduce + block-lengths))
+                  (equality-mismatch
+                   (assoc context :block-lengths block-lengths)
+                   :block-length-order true
+                   (apply <= block-lengths))
+                  (equality-mismatch
+                   (assoc context :block-lengths block-lengths)
+                   :block-length-difference-at-most-one true
+                   (<= (- (peek block-lengths)
+                          (first block-lengths))
+                       1))])))
+            (keep identity))
+           parameters/error-correction-levels)]
+      (is (empty? mismatches)
+          (pr-str {:numeric-capacity-version version
+                   :mismatches mismatches})))))
 
 (deftest every-printed-alphanumeric-and-byte-capacity-matches-independent-bits
-  (doseq [version (range 1 41)
-          level parameters/error-correction-levels
-          :let [{:keys [data-codeword-count
-                        alphanumeric-capacity
-                        byte-capacity]}
-                (parameters/ordinary-qr-parameters version level)
-                capacity-bits (* 8 data-codeword-count)]]
-    (testing (pr-str [version level])
-      (is (<=
-           (alphanumeric-segment-bit-count
-            version alphanumeric-capacity)
-           capacity-bits))
-      (is (<
-           capacity-bits
-           (alphanumeric-segment-bit-count
-            version (inc alphanumeric-capacity))))
-      (is (<=
-           (byte-segment-bit-count version byte-capacity)
-           capacity-bits))
-      (is (<
-           capacity-bits
-           (byte-segment-bit-count version (inc byte-capacity))))
-      (is (= alphanumeric-capacity
-             (parameters/alphanumeric-capacity version level)
-             (parameters/input-capacity
-              :alphanumeric version level)))
-      (is (= byte-capacity
-             (parameters/byte-capacity version level)
-             (parameters/input-capacity :byte version level))))))
+  (doseq [version (range 1 41)]
+    (let [mismatches
+          (into
+           []
+           (comp
+            (mapcat
+             (fn [level]
+               (let [{:keys [data-codeword-count
+                             alphanumeric-capacity
+                             byte-capacity]}
+                     (parameters/ordinary-qr-parameters version level)
+                     capacity-bits (* 8 data-codeword-count)
+                     context {:version version :level level}]
+                 [(equality-mismatch
+                   context :alphanumeric-capacity-fits true
+                   (<= (alphanumeric-segment-bit-count
+                        version alphanumeric-capacity)
+                       capacity-bits))
+                  (equality-mismatch
+                   context
+                   :alphanumeric-capacity-plus-one-does-not-fit
+                   true
+                   (< capacity-bits
+                      (alphanumeric-segment-bit-count
+                       version (inc alphanumeric-capacity))))
+                  (equality-mismatch
+                   context :byte-capacity-fits true
+                   (<= (byte-segment-bit-count version byte-capacity)
+                       capacity-bits))
+                  (equality-mismatch
+                   context :byte-capacity-plus-one-does-not-fit true
+                   (< capacity-bits
+                      (byte-segment-bit-count
+                       version (inc byte-capacity))))
+                  (equality-mismatch
+                   context :alphanumeric-capacity-lookups
+                   [alphanumeric-capacity alphanumeric-capacity]
+                   [(parameters/alphanumeric-capacity version level)
+                    (parameters/input-capacity
+                     :alphanumeric version level)])
+                  (equality-mismatch
+                   context :byte-capacity-lookups
+                   [byte-capacity byte-capacity]
+                   [(parameters/byte-capacity version level)
+                    (parameters/input-capacity
+                     :byte version level)])])))
+            (keep identity))
+           parameters/error-correction-levels)]
+      (is (empty? mismatches)
+          (pr-str {:mode-capacity-version version
+                   :mismatches mismatches})))))
 
 (deftest selector-is-minimal-at-every-version-boundary
   (doseq [level parameters/error-correction-levels]
-    (is (= 1 (parameters/smallest-numeric-version "1" level)))
-    (doseq [version (range 1 41)
-            :let [capacity (parameters/numeric-capacity version level)
-                  first-new-count
-                  (if (= version 1)
-                    1
-                    (inc (parameters/numeric-capacity (dec version) level)))]]
-      (testing (pr-str [version level])
-        (is (= version
-               (parameters/smallest-numeric-version
-                (digits capacity)
-                level)))
-        (is (= version
-               (parameters/smallest-numeric-version
-                (digits first-new-count)
-                level)))))))
+    (let [context {:mode :numeric :level level}
+          mismatches
+          (into
+           []
+           (keep identity)
+           (concat
+            [(equality-mismatch
+              context :smallest-positive-input 1
+              (parameters/smallest-numeric-version "1" level))]
+            (mapcat
+             (fn [version]
+               (let [capacity
+                     (parameters/numeric-capacity version level)
+                     first-new-count
+                     (if (= version 1)
+                       1
+                       (inc
+                        (parameters/numeric-capacity
+                         (dec version) level)))
+                     version-context
+                     (assoc context :version version)]
+                 [(equality-mismatch
+                   (assoc version-context :input-count capacity)
+                   :capacity-selects-version
+                   version
+                   (parameters/smallest-numeric-version
+                    (digits capacity) level))
+                  (equality-mismatch
+                   (assoc version-context :input-count first-new-count)
+                   :first-new-count-selects-version
+                   version
+                   (parameters/smallest-numeric-version
+                    (digits first-new-count) level))]))
+             (range 1 41))))]
+      (is (empty? mismatches)
+          (pr-str {:numeric-selector-level level
+                   :mismatches mismatches})))))
 
 (deftest count-selector-is-minimal-for-every-catalogued-mode-boundary
   (doseq [mode parameters/input-modes
           level parameters/error-correction-levels]
-    (is (= 1
-           (parameters/smallest-version-for-count mode 1 level)))
-    (doseq [version (range 1 41)
-            :let [capacity
-                  (parameters/input-capacity mode version level)
-                  first-new-count
-                  (if (= version 1)
-                    1
-                    (inc
-                     (parameters/input-capacity
-                      mode (dec version) level)))]]
-      (testing (pr-str [mode version level])
-        (is (= version
-               (parameters/smallest-version-for-count
-                mode capacity level)))
-        (is (= version
-               (parameters/smallest-version-for-count
-                mode first-new-count level)))))))
+    (let [context {:mode mode :level level}
+          mismatches
+          (into
+           []
+           (keep identity)
+           (concat
+            [(equality-mismatch
+              context :smallest-positive-count 1
+              (parameters/smallest-version-for-count mode 1 level))]
+            (mapcat
+             (fn [version]
+               (let [capacity
+                     (parameters/input-capacity mode version level)
+                     first-new-count
+                     (if (= version 1)
+                       1
+                       (inc
+                        (parameters/input-capacity
+                         mode (dec version) level)))
+                     version-context
+                     (assoc context :version version)]
+                 [(equality-mismatch
+                   (assoc version-context :input-count capacity)
+                   :capacity-selects-version
+                   version
+                   (parameters/smallest-version-for-count
+                    mode capacity level))
+                  (equality-mismatch
+                   (assoc version-context :input-count first-new-count)
+                   :first-new-count-selects-version
+                   version
+                   (parameters/smallest-version-for-count
+                    mode first-new-count level))]))
+             (range 1 41))))]
+      (is (empty? mismatches)
+          (pr-str {:count-selector
+                   [mode level]
+                   :mismatches mismatches})))))
 
 (deftest version-one-m-remains-the-fixed-profile-regression-anchor
   (is (= {:version 1

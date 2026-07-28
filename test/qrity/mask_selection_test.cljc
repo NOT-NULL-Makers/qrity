@@ -20,6 +20,41 @@
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
       (ex-data error))))
 
+(defn equality-mismatch
+  [context invariant expected actual]
+  (when-not (= expected actual)
+    (assoc context
+           :invariant invariant
+           :expected expected
+           :actual actual)))
+
+(defn matrix-mismatches
+  [context invariant expected actual]
+  (if (= expected actual)
+    []
+    (let [expected-shape (mapv count expected)
+          actual-shape (mapv count actual)]
+      (if (not= expected-shape actual-shape)
+        [(assoc context
+                :invariant invariant
+                :expected-shape expected-shape
+                :actual-shape actual-shape)]
+        (into
+         []
+         (keep
+          (fn [[row column]]
+            (let [expected-cell (get-in expected [row column])
+                  actual-cell (get-in actual [row column])]
+              (when-not (= expected-cell actual-cell)
+                (assoc context
+                       :invariant invariant
+                       :coordinate [row column]
+                       :expected expected-cell
+                       :actual actual-cell)))))
+         (for [row (range (count expected))
+               column (range (count (nth expected row)))]
+           [row column]))))))
+
 (defn final-message-and-placement
   [digits version error-correction-level]
   (let [final-message
@@ -187,47 +222,101 @@
              final-message placement))))))
 
 (deftest every-profile-builds-eight-bound-candidates
-  (doseq [version (range 1 41)
-          error-correction-level
-          parameters/error-correction-levels
-          :let [[final-message placement]
-                (final-message-and-placement
-                 "0"
-                 version
-                 error-correction-level)
-                candidates
-                (mask/mask-candidates
-                 final-message
-                 placement)
-                selected
-                (first
-                 (sort-by
-                  (juxt :total-penalty :mask-reference)
-                  candidates))]]
-    (testing (pr-str [version error-correction-level])
-      (is (= (vec (range 8))
-             (mapv :mask-reference candidates)))
-      (is (every? #(= version (:version %)) candidates))
-      (is (every?
-           #(= error-correction-level
-               (:error-correction-level %))
-           candidates))
-      (doseq [{:keys [mask-reference matrix penalties]} candidates]
-        (is (= (-> (:matrix placement)
-                   (matrix/apply-data-mask mask-reference)
-                   (matrix/resolve-metadata
-                    error-correction-level
-                    mask-reference)
-                   matrix/final-bit-matrix)
-               matrix))
-        (is (= {:same-color-runs (reference-n1 matrix)
-                :same-color-blocks (reference-n2 matrix)
-                :finder-like-patterns (reference-n3 matrix)
-                :dark-proportion (reference-n4 matrix)}
-               penalties)))
-      (is (= selected
-             (mask/select-best-candidate
-              final-message placement))))))
+  (doseq [version (range 1 41)]
+    (let [mismatches
+          (into
+           []
+           (mapcat
+            (fn [error-correction-level]
+              (let [[final-message placement]
+                    (final-message-and-placement
+                     "0"
+                     version
+                     error-correction-level)
+                    candidates
+                    (mask/mask-candidates final-message placement)
+                    selected
+                    (first
+                     (sort-by
+                      (juxt :total-penalty :mask-reference)
+                      candidates))
+                    actual-selected
+                    (mask/select-best-candidate
+                     final-message placement)
+                    context
+                    {:version version
+                     :level error-correction-level}
+                    profile-mismatches
+                    [(equality-mismatch
+                      context :mask-reference-order
+                      (vec (range 8))
+                      (mapv :mask-reference candidates))
+                     (equality-mismatch
+                      context :candidate-version-binding
+                      (vec (repeat 8 version))
+                      (mapv :version candidates))
+                     (equality-mismatch
+                      context :candidate-level-binding
+                      (vec (repeat 8 error-correction-level))
+                      (mapv :error-correction-level candidates))
+                     (equality-mismatch
+                      context :selected-candidate
+                      (dissoc selected :matrix)
+                      (dissoc actual-selected :matrix))]
+                    selected-matrix-mismatches
+                    (matrix-mismatches
+                     context
+                     :selected-candidate-matrix
+                     (:matrix selected)
+                     (:matrix actual-selected))
+                    candidate-mismatches
+                    (mapcat
+                     (fn [{:keys
+                           [mask-reference matrix penalties]}]
+                       (let [candidate-context
+                             (assoc
+                              context
+                              :mask-reference mask-reference)
+                             expected-matrix
+                             (-> (:matrix placement)
+                                 (matrix/apply-data-mask
+                                  mask-reference)
+                                 (matrix/resolve-metadata
+                                  error-correction-level
+                                  mask-reference)
+                                 matrix/final-bit-matrix)
+                             expected-penalties
+                             {:same-color-runs
+                              (reference-n1 matrix)
+                              :same-color-blocks
+                              (reference-n2 matrix)
+                              :finder-like-patterns
+                              (reference-n3 matrix)
+                              :dark-proportion
+                              (reference-n4 matrix)}]
+                         (concat
+                          (matrix-mismatches
+                           candidate-context
+                           :resolved-matrix
+                           expected-matrix
+                           matrix)
+                          [(equality-mismatch
+                            candidate-context
+                            :penalty-components
+                            expected-penalties
+                            penalties)])))
+                     candidates)]
+                (into
+                 []
+                 (keep identity)
+                 (concat
+                  profile-mismatches
+                  selected-matrix-mismatches
+                  candidate-mismatches))))
+            parameters/error-correction-levels))]
+      (is (empty? mismatches)
+          (pr-str {:candidate-version version
+                   :mismatches mismatches})))))
 
 (deftest minimum-query-returns-every-structural-tie-in-reference-order
   (let [[final-message placement]

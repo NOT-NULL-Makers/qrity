@@ -17,6 +17,14 @@
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
       (ex-data error))))
 
+(defn equality-mismatch
+  [context invariant expected actual]
+  (when-not (= expected actual)
+    (assoc context
+           :invariant invariant
+           :expected expected
+           :actual actual)))
+
 (defn block-lengths
   [block-groups]
   (into []
@@ -69,42 +77,81 @@
    (range degree)))
 
 (deftest every-ordinary-profile-partitions-and-interleaves
-  (doseq [version (range 1 41)
-          level parameters/error-correction-levels
-          :let [{:keys [data-codeword-count
-                        error-correction-block-count
-                        error-correction-codeword-count-per-block
-                        block-groups]}
-                (parameters/ordinary-qr-parameters version level)
-                data-codewords
-                (vec (take data-codeword-count (cycle (range 256))))
-                data-blocks
-                (message/partition-data-codewords data-codewords block-groups)
-                interleaved-data
-                (message/interleave-data-codewords data-blocks)
-                error-correction-blocks
-                (mapv
-                 (fn [block-index]
-                   (mapv #(mod (+ (* block-index 37) %) 256)
-                         (range error-correction-codeword-count-per-block)))
-                 (range error-correction-block-count))
-                interleaved-error-correction
-                (message/interleave-error-correction-codewords
-                 error-correction-blocks)]]
-    (testing (pr-str [version level])
-      (is (= (block-lengths block-groups)
-             (mapv count data-blocks)))
-      (is (= data-codewords (into [] cat data-blocks)))
-      (is (= (reference-interleave data-blocks) interleaved-data))
-      (is (= data-codeword-count (count interleaved-data)))
-      (is (= (reference-interleave error-correction-blocks)
-             interleaved-error-correction))
-      (is (= (* error-correction-block-count
-                error-correction-codeword-count-per-block)
-             (count interleaved-error-correction)))
-      (is (s/valid? ::message/data-blocks data-blocks))
-      (is (s/valid? ::message/error-correction-blocks
-                    error-correction-blocks)))))
+  (doseq [version (range 1 41)]
+    (let [mismatches
+          (into
+           []
+           (comp
+            (mapcat
+             (fn [level]
+               (let [{:keys [data-codeword-count
+                             error-correction-block-count
+                             error-correction-codeword-count-per-block
+                             block-groups]}
+                     (parameters/ordinary-qr-parameters version level)
+                     data-codewords
+                     (vec
+                      (take
+                       data-codeword-count
+                       (cycle (range 256))))
+                     data-blocks
+                     (message/partition-data-codewords
+                      data-codewords block-groups)
+                     interleaved-data
+                     (message/interleave-data-codewords data-blocks)
+                     error-correction-blocks
+                     (mapv
+                      (fn [block-index]
+                        (mapv
+                         #(mod (+ (* block-index 37) %) 256)
+                         (range
+                          error-correction-codeword-count-per-block)))
+                      (range error-correction-block-count))
+                     interleaved-error-correction
+                     (message/interleave-error-correction-codewords
+                      error-correction-blocks)
+                     context {:version version :level level}]
+                 [(equality-mismatch
+                   context :data-block-lengths
+                   (block-lengths block-groups)
+                   (mapv count data-blocks))
+                  (equality-mismatch
+                   context :partition-round-trip
+                   data-codewords
+                   (into [] cat data-blocks))
+                  (equality-mismatch
+                   context :interleaved-data-reference
+                   (reference-interleave data-blocks)
+                   interleaved-data)
+                  (equality-mismatch
+                   context :interleaved-data-count
+                   data-codeword-count
+                   (count interleaved-data))
+                  (equality-mismatch
+                   context :interleaved-error-correction-reference
+                   (reference-interleave
+                    error-correction-blocks)
+                   interleaved-error-correction)
+                  (equality-mismatch
+                   context :interleaved-error-correction-count
+                   (* error-correction-block-count
+                      error-correction-codeword-count-per-block)
+                   (count interleaved-error-correction))
+                  (equality-mismatch
+                   context :data-block-spec
+                   true
+                   (s/valid? ::message/data-blocks data-blocks))
+                  (equality-mismatch
+                   context :error-correction-block-spec
+                   true
+                   (s/valid?
+                    ::message/error-correction-blocks
+                    error-correction-blocks))])))
+            (keep identity))
+           parameters/error-correction-levels)]
+      (is (empty? mismatches)
+          (pr-str {:partition-version version
+                   :mismatches mismatches})))))
 
 (deftest version-five-h-exercises-unequal-blocks-and-real-reed-solomon
   (let [{:keys [block-groups
@@ -218,60 +265,147 @@
       (is (= expected-reason (:reason data))))))
 
 (deftest every-profile-constructs-the-complete-codeword-message
-  (doseq [version (range 1 41)
-          level parameters/error-correction-levels
-          :let [{:keys [numeric-capacity
-                        data-codeword-count
-                        total-codeword-count
+  (doseq [version (range 1 41)]
+    (let [mismatches
+          (into
+           []
+           (mapcat
+            (fn [level]
+              (let [{:keys [numeric-capacity
+                            data-codeword-count
+                            total-codeword-count
+                            error-correction-block-count
+                            error-correction-codeword-count-per-block
+                            remainder-bit-count]}
+                    (parameters/ordinary-qr-parameters version level)
+                    payload
+                    (apply str (repeat numeric-capacity "0"))
+                    data-codewords
+                    (segment/numeric-data-codewords
+                     payload version level)
+                    result
+                    (message/construct-final-message
+                     data-codewords version level)
+                    context {:version version :level level}
+                    syndrome-mismatches
+                    (into
+                     []
+                     (keep
+                      (fn [[block-index
+                            data-block
+                            error-correction-block]]
+                        (let [actual
+                              (reference-syndromes
+                               (into
+                                data-block
+                                error-correction-block)
+                               error-correction-codeword-count-per-block)]
+                          (when-not (every? zero? actual)
+                            (assoc
+                             context
+                             :invariant :reed-solomon-syndromes
+                             :block-index block-index
+                             :expected
+                             (vec
+                              (repeat
+                               error-correction-codeword-count-per-block
+                               0))
+                             :actual actual)))))
+                     (map
+                      vector
+                      (range)
+                      (:data-blocks result)
+                      (:error-correction-blocks result)))
+                    profile-mismatches
+                    [(equality-mismatch
+                      context :data-codeword-count
+                      data-codeword-count
+                      (count (:data-codewords result)))
+                     (equality-mismatch
+                      context :data-block-count
+                      error-correction-block-count
+                      (count (:data-blocks result)))
+                     (equality-mismatch
+                      context :error-correction-block-count
+                      error-correction-block-count
+                      (count (:error-correction-blocks result)))
+                     (equality-mismatch
+                      context :error-correction-block-lengths
+                      (vec
+                       (repeat
                         error-correction-block-count
-                        error-correction-codeword-count-per-block
-                        remainder-bit-count]}
-                (parameters/ordinary-qr-parameters version level)
-                payload (apply str (repeat numeric-capacity "0"))
-                data-codewords
-                (segment/numeric-data-codewords payload version level)
-                result
-                (message/construct-final-message
-                 data-codewords version level)]]
-    (testing (pr-str [version level])
-      (is (= data-codeword-count (count (:data-codewords result))))
-      (is (= error-correction-block-count
-             (count (:data-blocks result))))
-      (is (= error-correction-block-count
-             (count (:error-correction-blocks result))))
-      (is (every? #(= error-correction-codeword-count-per-block
-                      (count %))
-                  (:error-correction-blocks result)))
-      (is (every?
-           true?
-           (map (fn [data-block error-correction-block]
-                  (every?
-                   zero?
-                   (reference-syndromes
-                    (into data-block error-correction-block)
-                    error-correction-codeword-count-per-block)))
-                (:data-blocks result)
-                (:error-correction-blocks result))))
-      (is (= total-codeword-count (count (:message-codewords result))))
-      (is (= remainder-bit-count (count (:remainder-bits result))))
-      (is (every? zero? (:remainder-bits result)))
-      (is (= (+ (* 8 total-codeword-count) remainder-bit-count)
-             (count (:message-bits result))))
-      (is (s/valid? ::message/final-message result)))))
+                        error-correction-codeword-count-per-block))
+                      (mapv
+                       count
+                       (:error-correction-blocks result)))
+                     (equality-mismatch
+                      context :message-codeword-count
+                      total-codeword-count
+                      (count (:message-codewords result)))
+                     (equality-mismatch
+                      context :remainder-bit-count
+                      remainder-bit-count
+                      (count (:remainder-bits result)))
+                     (equality-mismatch
+                      context :remainder-bits
+                      (vec (repeat remainder-bit-count 0))
+                      (:remainder-bits result))
+                     (equality-mismatch
+                      context :message-bit-count
+                      (+ (* 8 total-codeword-count)
+                         remainder-bit-count)
+                      (count (:message-bits result)))
+                     (equality-mismatch
+                      context :final-message-spec
+                      true
+                      (s/valid? ::message/final-message result))]]
+                (into
+                 syndrome-mismatches
+                 (keep identity)
+                 profile-mismatches)))
+            parameters/error-correction-levels))]
+      (is (empty? mismatches)
+          (pr-str {:final-message-version version
+                   :mismatches mismatches})))))
 
 (deftest generalized-version-one-m-message-equals-fixed-stage
-  (doseq [length (range 1 35)
-          :let [payload (apply str (take length (cycle "0123456789")))
-                fixed (encode/encode-numeric-v1-m payload)
-                generalized
-                (message/construct-final-message
-                 (segment/numeric-data-codewords payload 1 :m)
-                 1
-                 :m)]]
-    (is (= (:message-codewords fixed)
-           (:message-codewords generalized)))
-    (is (= (:message-bits fixed) (:message-bits generalized)))
-    (is (empty? (:remainder-bits generalized)))))
+  (let [mismatches
+        (into
+         []
+         (comp
+          (mapcat
+           (fn [length]
+             (let [payload
+                   (apply
+                    str
+                    (take length (cycle "0123456789")))
+                   fixed (encode/encode-numeric-v1-m payload)
+                   generalized
+                   (message/construct-final-message
+                    (segment/numeric-data-codewords
+                     payload 1 :m)
+                    1
+                    :m)
+                   context {:version 1
+                            :level :m
+                            :length length}]
+               [(equality-mismatch
+                 context :message-codewords
+                 (:message-codewords fixed)
+                 (:message-codewords generalized))
+                (equality-mismatch
+                 context :message-bits
+                 (:message-bits fixed)
+                 (:message-bits generalized))
+                (equality-mismatch
+                 context :remainder-bits
+                 []
+                 (:remainder-bits generalized))])))
+          (keep identity))
+         (range 1 35))]
+    (is (empty? mismatches)
+        (pr-str {:version-one-m-equivalence-mismatches
+                 mismatches}))))
 
 (deftest final-message-boundary-and-spec-failures-are-explicit
   (let [data-codewords

@@ -3,8 +3,8 @@
             [qrity.matrix :as matrix]
             [qrity.metadata :as metadata]
             [qrity.parameters :as parameters]
-            #?(:clj [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test :refer-macros [deftest is testing]])))
+            #?(:clj [clojure.test :refer [deftest is]]
+               :cljs [cljs.test :refer-macros [deftest is]])))
 
 (def format-reference-values
   {:m [0x5412 0x5125 0x5E7C 0x5B4B
@@ -141,34 +141,79 @@
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
       (ex-data error))))
 
+(defn mismatch
+  ([inputs invariant expected actual]
+   (mismatch inputs invariant nil expected actual))
+  ([inputs invariant coordinates expected actual]
+   (when-not (= expected actual)
+     (cond-> {:inputs inputs
+              :invariant invariant
+              :expected expected
+              :actual actual}
+       coordinates (assoc :coordinates coordinates)))))
+
 (deftest all-format-information-words-match-normative-annex-c
   (let [words
         (vec
          (for [level parameters/error-correction-levels
                mask-reference (range 8)]
            (metadata/format-information-bits level mask-reference)))]
-    (doseq [level parameters/error-correction-levels
-            mask-reference (range 8)
-            :let [information-bits
-                  (metadata/format-information-bits
-                   level
-                   mask-reference)
-                  expected
-                  (get-in format-reference-values
-                          [level mask-reference])
-                  unmasked
-                  (bit-xor (bits->integer information-bits)
-                           0x5412)]]
-      (testing (pr-str [level mask-reference])
-        (is (= expected (bits->integer information-bits)))
-        (is (= 15 (count information-bits)))
-        (is (zero? (polynomial-remainder unmasked 0x537)))))
-    (doseq [left-index (range (count words))
-            right-index (range (inc left-index) (count words))]
-      (is (<= 7
-              (hamming-distance
-               (nth words left-index)
-               (nth words right-index)))))
+    (doseq [level parameters/error-correction-levels]
+      (let [mismatches
+            (vec
+             (mapcat
+              (fn [mask-reference]
+                (let [inputs {:level level
+                              :mask-reference mask-reference}
+                      information-bits
+                      (metadata/format-information-bits
+                       level
+                       mask-reference)
+                      information-value
+                      (bits->integer information-bits)
+                      expected
+                      (get-in format-reference-values
+                              [level mask-reference])
+                      unmasked
+                      (bit-xor information-value 0x5412)]
+                  (keep identity
+                        [(mismatch inputs
+                                   :annex-c-information-word
+                                   expected
+                                   information-value)
+                         (mismatch inputs
+                                   :information-word-length
+                                   15
+                                   (count information-bits))
+                         (mismatch inputs
+                                   :bch-polynomial-remainder
+                                   0
+                                   (polynomial-remainder
+                                    unmasked
+                                    0x537))])))
+              (range 8)))]
+        (is (empty? mismatches)
+            (pr-str {:level level
+                     :mismatches mismatches}))))
+    (let [mismatches
+          (vec
+           (keep
+            (fn [[left-index right-index]]
+              (let [distance
+                    (hamming-distance
+                     (nth words left-index)
+                     (nth words right-index))]
+                (when (< distance 7)
+                  {:inputs {:left-index left-index
+                            :right-index right-index}
+                   :invariant :minimum-hamming-distance
+                   :expected {:minimum 7}
+                   :actual distance})))
+            (for [left-index (range (count words))
+                  right-index (range (inc left-index) (count words))]
+              [left-index right-index])))]
+      (is (empty? mismatches)
+          (pr-str {:mismatches mismatches})))
     (is (= (metadata/format-information-bits :m 2)
            (metadata/format-information-bits 2)))
     (is (= [1 0 1 1 1 1 0 0 1 1 1 1 1 0 0]
@@ -179,26 +224,58 @@
 (deftest all-version-information-words-match-normative-annex-d
   (let [words
         (mapv metadata/version-information-bits (range 7 41))]
-    (doseq [version (range 7 41)
-            :let [information-bits
-                  (metadata/version-information-bits version)
-                  expected
-                  (nth version-reference-values (- version 7))]]
-      (testing (str "Version " version)
-        (is (= expected (bits->integer information-bits)))
-        (is (= version
-               (bits->integer (subvec information-bits 0 6))))
-        (is (= 18 (count information-bits)))
-        (is (zero?
-             (polynomial-remainder
-              (bits->integer information-bits)
-              0x1F25)))))
-    (doseq [left-index (range (count words))
-            right-index (range (inc left-index) (count words))]
-      (is (<= 8
-              (hamming-distance
-               (nth words left-index)
-               (nth words right-index)))))
+    (doseq [version (range 7 41)]
+      (let [information-bits
+            (metadata/version-information-bits version)
+            information-value
+            (bits->integer information-bits)
+            expected
+            (nth version-reference-values (- version 7))
+            inputs {:version version}
+            mismatches
+            (vec
+             (keep identity
+                   [(mismatch inputs
+                              :annex-d-information-word
+                              expected
+                              information-value)
+                    (mismatch inputs
+                              :version-prefix
+                              version
+                              (bits->integer
+                               (subvec information-bits 0 6)))
+                    (mismatch inputs
+                              :information-word-length
+                              18
+                              (count information-bits))
+                    (mismatch inputs
+                              :bch-polynomial-remainder
+                              0
+                              (polynomial-remainder
+                               information-value
+                               0x1F25))]))]
+        (is (empty? mismatches)
+            (pr-str {:version version
+                     :mismatches mismatches}))))
+    (let [mismatches
+          (vec
+           (keep
+            (fn [[left-index right-index]]
+              (let [distance
+                    (hamming-distance
+                     (nth words left-index)
+                     (nth words right-index))]
+                (when (< distance 8)
+                  {:inputs {:left-version (+ 7 left-index)
+                            :right-version (+ 7 right-index)}
+                   :invariant :minimum-hamming-distance
+                   :expected {:minimum 8}
+                   :actual distance})))
+            (for [left-index (range (count words))
+                  right-index (range (inc left-index) (count words))]
+              [left-index right-index])))]
+      (is (empty? mismatches)
+          (pr-str {:mismatches mismatches})))
     (is (= [0 0 0 1 1 1 1 1 0 0 1 0 0 1 0 1 0 0]
            (metadata/version-information-bits 7)))))
 
@@ -237,48 +314,97 @@
                  bottom-left)))))
 
 (deftest metadata-resolution-is-exhaustive-and-confined
-  (doseq [version (range 1 41)
-          :let [before (metadata-ready-matrix version)
-                dimension (count before)
-                expected-coordinates
-                (metadata-coordinates version dimension)
-                {:keys [primary secondary]}
-                (format-coordinate-copies dimension)
-                {:keys [top-right bottom-left]}
-                (version-coordinate-copies dimension)]
-          level parameters/error-correction-levels
-          mask-reference (range 8)
-          :let [after
-                (matrix/resolve-metadata
-                 before
-                 level
-                 mask-reference)
-                format-bits
-                (metadata/format-information-bits
-                 level
-                 mask-reference)]]
-    (testing (pr-str [version level mask-reference])
-      (is (s/valid? ::matrix/metadata-ready-matrix before))
-      (is (s/valid? ::matrix/metadata-complete-matrix after))
-      (is (= expected-coordinates
-             (changed-coordinates before after)))
-      (is (= format-bits
-             (mapv #(cell-bit (get-in after %)) primary)))
-      (is (= (vec (reverse format-bits))
-             (mapv #(cell-bit (get-in after %)) secondary)))
-      (is (= :reserved-dark
-             (get-in after [(- dimension 8) 8])))
-      (if (< version 7)
-        (is (= 30 (count expected-coordinates)))
-        (let [version-bits
-              (vec
-               (reverse
-                (metadata/version-information-bits version)))]
-          (is (= 66 (count expected-coordinates)))
-          (is (= version-bits
-                 (mapv #(cell-bit (get-in after %)) top-right)))
-          (is (= version-bits
-                 (mapv #(cell-bit (get-in after %)) bottom-left))))))))
+  (doseq [version (range 1 41)]
+    (let [before (metadata-ready-matrix version)
+          dimension (count before)
+          expected-coordinates
+          (metadata-coordinates version dimension)
+          {:keys [primary secondary]}
+          (format-coordinate-copies dimension)
+          {:keys [top-right bottom-left]}
+          (version-coordinate-copies dimension)
+          mismatches
+          (vec
+           (mapcat
+            (fn [[level mask-reference]]
+              (let [inputs {:version version
+                            :level level
+                            :mask-reference mask-reference}
+                    after
+                    (matrix/resolve-metadata
+                     before
+                     level
+                     mask-reference)
+                    format-bits
+                    (metadata/format-information-bits
+                     level
+                     mask-reference)
+                    common-mismatches
+                    [(mismatch inputs
+                               :metadata-ready-matrix-spec
+                               true
+                               (s/valid?
+                                ::matrix/metadata-ready-matrix
+                                before))
+                     (mismatch inputs
+                               :metadata-complete-matrix-spec
+                               true
+                               (s/valid?
+                                ::matrix/metadata-complete-matrix
+                                after))
+                     (mismatch inputs
+                               :changed-coordinates
+                               expected-coordinates
+                               (changed-coordinates before after))
+                     (mismatch inputs
+                               :primary-format-copy
+                               primary
+                               format-bits
+                               (mapv #(cell-bit (get-in after %))
+                                     primary))
+                     (mismatch inputs
+                               :secondary-format-copy
+                               secondary
+                               (vec (reverse format-bits))
+                               (mapv #(cell-bit (get-in after %))
+                                     secondary))
+                     (mismatch inputs
+                               :fixed-dark-module
+                               [[(- dimension 8) 8]]
+                               :reserved-dark
+                               (get-in after [(- dimension 8) 8]))
+                     (mismatch inputs
+                               :metadata-coordinate-count
+                               (if (< version 7) 30 66)
+                               (count expected-coordinates))]
+                    version-mismatches
+                    (when (<= 7 version)
+                      (let [version-bits
+                            (vec
+                             (reverse
+                              (metadata/version-information-bits
+                               version)))]
+                        [(mismatch inputs
+                                   :top-right-version-copy
+                                   top-right
+                                   version-bits
+                                   (mapv #(cell-bit (get-in after %))
+                                         top-right))
+                         (mismatch inputs
+                                   :bottom-left-version-copy
+                                   bottom-left
+                                   version-bits
+                                   (mapv #(cell-bit (get-in after %))
+                                         bottom-left))]))]
+                (keep identity
+                      (concat common-mismatches
+                              version-mismatches))))
+            (for [level parameters/error-correction-levels
+                  mask-reference (range 8)]
+              [level mask-reference])))]
+      (is (empty? mismatches)
+          (pr-str {:version version
+                   :mismatches mismatches})))))
 
 (deftest invalid-metadata-requests-fail-structurally
   (doseq [[thunk error]
