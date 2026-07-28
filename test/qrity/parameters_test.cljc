@@ -33,6 +33,30 @@
      (character-count-bit-width version)
      (numeric-data-bit-count character-count)))
 
+(defn alphanumeric-character-count-bit-width
+  [version]
+  (cond
+    (<= version 9) 9
+    (<= version 26) 11
+    :else 13))
+
+(defn byte-count-bit-width
+  [version]
+  (if (<= version 9) 8 16))
+
+(defn alphanumeric-segment-bit-count
+  [version character-count]
+  (+ 4
+     (alphanumeric-character-count-bit-width version)
+     (* 11 (quot character-count 2))
+     (* 6 (mod character-count 2))))
+
+(defn byte-segment-bit-count
+  [version byte-count]
+  (+ 4
+     (byte-count-bit-width version)
+     (* 8 byte-count)))
+
 (defn digits
   [character-count]
   (apply str (repeat character-count "1")))
@@ -124,6 +148,9 @@
               capacity-bits))
       (is (< capacity-bits
              (numeric-segment-bit-count version (inc numeric-capacity))))
+      (is (= numeric-capacity
+             (parameters/numeric-capacity version level)
+             (parameters/input-capacity :numeric version level)))
       (is (= total-codeword-count
              (+ data-codeword-count
                 error-correction-codeword-count)))
@@ -134,6 +161,37 @@
       (is (= data-codeword-count (reduce + block-lengths)))
       (is (apply <= block-lengths))
       (is (<= (- (peek block-lengths) (first block-lengths)) 1)))))
+
+(deftest every-printed-alphanumeric-and-byte-capacity-matches-independent-bits
+  (doseq [version (range 1 41)
+          level parameters/error-correction-levels
+          :let [{:keys [data-codeword-count
+                        alphanumeric-capacity
+                        byte-capacity]}
+                (parameters/ordinary-qr-parameters version level)
+                capacity-bits (* 8 data-codeword-count)]]
+    (testing (pr-str [version level])
+      (is (<=
+           (alphanumeric-segment-bit-count
+            version alphanumeric-capacity)
+           capacity-bits))
+      (is (<
+           capacity-bits
+           (alphanumeric-segment-bit-count
+            version (inc alphanumeric-capacity))))
+      (is (<=
+           (byte-segment-bit-count version byte-capacity)
+           capacity-bits))
+      (is (<
+           capacity-bits
+           (byte-segment-bit-count version (inc byte-capacity))))
+      (is (= alphanumeric-capacity
+             (parameters/alphanumeric-capacity version level)
+             (parameters/input-capacity
+              :alphanumeric version level)))
+      (is (= byte-capacity
+             (parameters/byte-capacity version level)
+             (parameters/input-capacity :byte version level))))))
 
 (deftest selector-is-minimal-at-every-version-boundary
   (doseq [level parameters/error-correction-levels]
@@ -154,6 +212,28 @@
                 (digits first-new-count)
                 level)))))))
 
+(deftest count-selector-is-minimal-for-every-catalogued-mode-boundary
+  (doseq [mode parameters/input-modes
+          level parameters/error-correction-levels]
+    (is (= 1
+           (parameters/smallest-version-for-count mode 1 level)))
+    (doseq [version (range 1 41)
+            :let [capacity
+                  (parameters/input-capacity mode version level)
+                  first-new-count
+                  (if (= version 1)
+                    1
+                    (inc
+                     (parameters/input-capacity
+                      mode (dec version) level)))]]
+      (testing (pr-str [mode version level])
+        (is (= version
+               (parameters/smallest-version-for-count
+                mode capacity level)))
+        (is (= version
+               (parameters/smallest-version-for-count
+                mode first-new-count level)))))))
+
 (deftest version-one-m-remains-the-fixed-profile-regression-anchor
   (is (= {:version 1
           :total-codeword-count 26
@@ -161,6 +241,8 @@
           :alignment-pattern-centers []
           :data-codeword-count 16
           :numeric-capacity 34
+          :alphanumeric-capacity 20
+          :byte-capacity 14
           :dimension 21
           :version-information-required? false
           :error-correction-level :m
@@ -220,7 +302,35 @@
     (let [data (exception-data
                 #(parameters/smallest-numeric-version payload :m))]
       (is (= :invalid-numeric-payload (:qrity/error data)))
-      (is (= reason (:reason data))))))
+      (is (= reason (:reason data)))))
+  (doseq [mode [:kanji "numeric" nil]]
+    (let [data
+          (exception-data
+           #(parameters/smallest-version-for-count mode 1 :m))]
+      (is (= :invalid-mode (:qrity/error data)))
+      (is (= parameters/input-modes (:supported-modes data)))))
+  (doseq [mode parameters/input-modes
+          [input-count reason]
+          [[0 :non-positive-count]
+           [-1 :non-positive-count]
+           [1.5 :non-integer-count]
+           ["1" :non-integer-count]
+           [nil :non-integer-count]]]
+    (let [data
+          (exception-data
+           #(parameters/smallest-version-for-count
+             mode input-count :m))]
+      (is (= :invalid-input-count (:qrity/error data)))
+      (is (= mode (:mode data)))
+      (is (= input-count (:input-count data)))
+      (is (= reason (:reason data)))))
+  (doseq [mode parameters/input-modes]
+    (let [data
+          (exception-data
+           #(parameters/smallest-version-for-count mode 1 :z))]
+      (is (= :invalid-error-correction-level
+             (:qrity/error data)))
+      (is (= :z (:error-correction-level data))))))
 
 (deftest each-version-forty-overflow-reports-its-level-specific-limit
   (doseq [level parameters/error-correction-levels
@@ -235,3 +345,18 @@
       (is (= 40 (:maximum-version data)))
       (is (= maximum (:maximum-capacity data)))
       (is (= (inc maximum) (:character-count data))))))
+
+(deftest every-catalogued-mode-overflow-reports-its-specific-limit
+  (doseq [mode parameters/input-modes
+          level parameters/error-correction-levels
+          :let [maximum (parameters/input-capacity mode 40 level)
+                data
+                (exception-data
+                 #(parameters/smallest-version-for-count
+                   mode (inc maximum) level))]]
+    (testing (pr-str [mode level])
+      (is (= :payload-too-large (:qrity/error data)))
+      (is (= mode (:mode data)))
+      (is (= 40 (:maximum-version data)))
+      (is (= maximum (:maximum-capacity data)))
+      (is (= (inc maximum) (:input-count data))))))

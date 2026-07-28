@@ -1,17 +1,29 @@
 (ns qrity.parameters
-  "Ordinary QR Code parameter catalogue and isolated Numeric version selection.
+  "Ordinary QR Code parameter catalogue and single-segment capacity selection.
 
-  These parameters describe standard profiles. The provisional generalized Numeric
-  encoder consumes them; catalogue presence is not a claim of support for other
-  modes."
+  The provisional generalized Numeric encoder consumes these parameters.
+  Alphanumeric and Byte catalogue presence supports planning and is not a claim
+  that those modes can already be encoded."
   (:require [clojure.spec.alpha :as s]))
 
 (def error-correction-levels
   "Ordinary QR Code error-correction levels in Table 7 row order."
   [:l :m :q :h])
 
+(def input-modes
+  "Single-segment modes whose ordinary-QR Table 7 capacities are catalogued."
+  [:numeric :alphanumeric :byte])
+
 (def ^:private error-correction-level-set
   (set error-correction-levels))
+
+(def ^:private input-mode-set
+  (set input-modes))
+
+(def ^:private input-mode-capacity-key
+  {:numeric :numeric-capacity
+   :alphanumeric :alphanumeric-capacity
+   :byte :byte-capacity})
 
 ;; Canonical transcriptions from ISO/IEC 18004:2015, Table 1, printed
 ;; pp. 19–20 (PDF pp. 27–28): [total codewords, remainder bits].
@@ -45,49 +57,50 @@
    [6 26 54 82 110 138 166] [6 30 58 86 114 142 170]])
 
 ;; Canonical transcriptions from Table 7, printed pp. 33–36 (PDF pp. 41–44).
-;; Each version row contains L/M/Q/H pairs of
-;; [data-codeword-count, printed Numeric capacity].
+;; Each version row contains L/M/Q/H entries of
+;; [data-codeword-count, printed Numeric capacity,
+;;  printed Alphanumeric capacity, printed Byte capacity].
 (def ^:private table-7-level-facts
-  [[[19 41] [16 34] [13 27] [9 17]]
-   [[34 77] [28 63] [22 48] [16 34]]
-   [[55 127] [44 101] [34 77] [26 58]]
-   [[80 187] [64 149] [48 111] [36 82]]
-   [[108 255] [86 202] [62 144] [46 106]]
-   [[136 322] [108 255] [76 178] [60 139]]
-   [[156 370] [124 293] [88 207] [66 154]]
-   [[194 461] [154 365] [110 259] [86 202]]
-   [[232 552] [182 432] [132 312] [100 235]]
-   [[274 652] [216 513] [154 364] [122 288]]
-   [[324 772] [254 604] [180 427] [140 331]]
-   [[370 883] [290 691] [206 489] [158 374]]
-   [[428 1022] [334 796] [244 580] [180 427]]
-   [[461 1101] [365 871] [261 621] [197 468]]
-   [[523 1250] [415 991] [295 703] [223 530]]
-   [[589 1408] [453 1082] [325 775] [253 602]]
-   [[647 1548] [507 1212] [367 876] [283 674]]
-   [[721 1725] [563 1346] [397 948] [313 746]]
-   [[795 1903] [627 1500] [445 1063] [341 813]]
-   [[861 2061] [669 1600] [485 1159] [385 919]]
-   [[932 2232] [714 1708] [512 1224] [406 969]]
-   [[1006 2409] [782 1872] [568 1358] [442 1056]]
-   [[1094 2620] [860 2059] [614 1468] [464 1108]]
-   [[1174 2812] [914 2188] [664 1588] [514 1228]]
-   [[1276 3057] [1000 2395] [718 1718] [538 1286]]
-   [[1370 3283] [1062 2544] [754 1804] [596 1425]]
-   [[1468 3517] [1128 2701] [808 1933] [628 1501]]
-   [[1531 3669] [1193 2857] [871 2085] [661 1581]]
-   [[1631 3909] [1267 3035] [911 2181] [701 1677]]
-   [[1735 4158] [1373 3289] [985 2358] [745 1782]]
-   [[1843 4417] [1455 3486] [1033 2473] [793 1897]]
-   [[1955 4686] [1541 3693] [1115 2670] [845 2022]]
-   [[2071 4965] [1631 3909] [1171 2805] [901 2157]]
-   [[2191 5253] [1725 4134] [1231 2949] [961 2301]]
-   [[2306 5529] [1812 4343] [1286 3081] [986 2361]]
-   [[2434 5836] [1914 4588] [1354 3244] [1054 2524]]
-   [[2566 6153] [1992 4775] [1426 3417] [1096 2625]]
-   [[2702 6479] [2102 5039] [1502 3599] [1142 2735]]
-   [[2812 6743] [2216 5313] [1582 3791] [1222 2927]]
-   [[2956 7089] [2334 5596] [1666 3993] [1276 3057]]])
+  [[[19 41 25 17] [16 34 20 14] [13 27 16 11] [9 17 10 7]]
+   [[34 77 47 32] [28 63 38 26] [22 48 29 20] [16 34 20 14]]
+   [[55 127 77 53] [44 101 61 42] [34 77 47 32] [26 58 35 24]]
+   [[80 187 114 78] [64 149 90 62] [48 111 67 46] [36 82 50 34]]
+   [[108 255 154 106] [86 202 122 84] [62 144 87 60] [46 106 64 44]]
+   [[136 322 195 134] [108 255 154 106] [76 178 108 74] [60 139 84 58]]
+   [[156 370 224 154] [124 293 178 122] [88 207 125 86] [66 154 93 64]]
+   [[194 461 279 192] [154 365 221 152] [110 259 157 108] [86 202 122 84]]
+   [[232 552 335 230] [182 432 262 180] [132 312 189 130] [100 235 143 98]]
+   [[274 652 395 271] [216 513 311 213] [154 364 221 151] [122 288 174 119]]
+   [[324 772 468 321] [254 604 366 251] [180 427 259 177] [140 331 200 137]]
+   [[370 883 535 367] [290 691 419 287] [206 489 296 203] [158 374 227 155]]
+   [[428 1022 619 425] [334 796 483 331] [244 580 352 241] [180 427 259 177]]
+   [[461 1101 667 458] [365 871 528 362] [261 621 376 258] [197 468 283 194]]
+   [[523 1250 758 520] [415 991 600 412] [295 703 426 292] [223 530 321 220]]
+   [[589 1408 854 586] [453 1082 656 450] [325 775 470 322] [253 602 365 250]]
+   [[647 1548 938 644] [507 1212 734 504] [367 876 531 364] [283 674 408 280]]
+   [[721 1725 1046 718] [563 1346 816 560] [397 948 574 394] [313 746 452 310]]
+   [[795 1903 1153 792] [627 1500 909 624] [445 1063 644 442] [341 813 493 338]]
+   [[861 2061 1249 858] [669 1600 970 666] [485 1159 702 482] [385 919 557 382]]
+   [[932 2232 1352 929] [714 1708 1035 711] [512 1224 742 509] [406 969 587 403]]
+   [[1006 2409 1460 1003] [782 1872 1134 779] [568 1358 823 565] [442 1056 640 439]]
+   [[1094 2620 1588 1091] [860 2059 1248 857] [614 1468 890 611] [464 1108 672 461]]
+   [[1174 2812 1704 1171] [914 2188 1326 911] [664 1588 963 661] [514 1228 744 511]]
+   [[1276 3057 1853 1273] [1000 2395 1451 997] [718 1718 1041 715] [538 1286 779 535]]
+   [[1370 3283 1990 1367] [1062 2544 1542 1059] [754 1804 1094 751] [596 1425 864 593]]
+   [[1468 3517 2132 1465] [1128 2701 1637 1125] [808 1933 1172 805] [628 1501 910 625]]
+   [[1531 3669 2223 1528] [1193 2857 1732 1190] [871 2085 1263 868] [661 1581 958 658]]
+   [[1631 3909 2369 1628] [1267 3035 1839 1264] [911 2181 1322 908] [701 1677 1016 698]]
+   [[1735 4158 2520 1732] [1373 3289 1994 1370] [985 2358 1429 982] [745 1782 1080 742]]
+   [[1843 4417 2677 1840] [1455 3486 2113 1452] [1033 2473 1499 1030] [793 1897 1150 790]]
+   [[1955 4686 2840 1952] [1541 3693 2238 1538] [1115 2670 1618 1112] [845 2022 1226 842]]
+   [[2071 4965 3009 2068] [1631 3909 2369 1628] [1171 2805 1700 1168] [901 2157 1307 898]]
+   [[2191 5253 3183 2188] [1725 4134 2506 1722] [1231 2949 1787 1228] [961 2301 1394 958]]
+   [[2306 5529 3351 2303] [1812 4343 2632 1809] [1286 3081 1867 1283] [986 2361 1431 983]]
+   [[2434 5836 3537 2431] [1914 4588 2780 1911] [1354 3244 1966 1351] [1054 2524 1530 1051]]
+   [[2566 6153 3729 2563] [1992 4775 2894 1989] [1426 3417 2071 1423] [1096 2625 1591 1093]]
+   [[2702 6479 3927 2699] [2102 5039 3054 2099] [1502 3599 2181 1499] [1142 2735 1658 1139]]
+   [[2812 6743 4087 2809] [2216 5313 3220 2213] [1582 3791 2298 1579] [1222 2927 1774 1219]]
+   [[2956 7089 4296 2953] [2334 5596 3391 2331] [1666 3993 2420 1663] [1276 3057 1852 1273]]])
 
 ;; Canonical transcriptions from Table 9, printed pp. 38–44 (PDF pp. 46–52).
 ;; Each version row contains L/M/Q/H pairs of
@@ -152,12 +165,18 @@
       :levels
       (into {}
             (map (fn [level
-                      [data-codeword-count printed-numeric-capacity]
+                      [data-codeword-count
+                       printed-numeric-capacity
+                       printed-alphanumeric-capacity
+                       printed-byte-capacity]
                       [error-correction-codeword-count
                        error-correction-block-count]]
                    [level
                     {:data-codeword-count data-codeword-count
                      :numeric-capacity printed-numeric-capacity
+                     :alphanumeric-capacity
+                     printed-alphanumeric-capacity
+                     :byte-capacity printed-byte-capacity
                      :error-correction-codeword-count
                      error-correction-codeword-count
                      :error-correction-block-count
@@ -173,8 +192,12 @@
 
 (s/def ::version (s/int-in 1 41))
 (s/def ::error-correction-level error-correction-level-set)
+(s/def ::input-mode input-mode-set)
+(s/def ::input-count pos-int?)
 (s/def ::mask-reference (s/int-in 0 8))
 (s/def ::numeric-capacity pos-int?)
+(s/def ::alphanumeric-capacity pos-int?)
+(s/def ::byte-capacity pos-int?)
 (s/def ::numeric-payload
   (s/and string? #(boolean (re-matches #"[0-9]+" %))))
 (s/def ::data-codeword-count pos-int?)
@@ -219,6 +242,8 @@
 (def level-row-keys
   #{:data-codeword-count
     :numeric-capacity
+    :alphanumeric-capacity
+    :byte-capacity
     :error-correction-codeword-count
     :error-correction-block-count})
 
@@ -244,6 +269,10 @@
                            (:data-codeword-count row))
                  (s/valid? ::numeric-capacity
                            (:numeric-capacity row))
+                 (s/valid? ::alphanumeric-capacity
+                           (:alphanumeric-capacity row))
+                 (s/valid? ::byte-capacity
+                           (:byte-capacity row))
                  (s/valid? ::error-correction-codeword-count
                            (:error-correction-codeword-count row))
                  (s/valid? ::error-correction-block-count
@@ -276,6 +305,8 @@
     :alignment-pattern-centers
     :data-codeword-count
     :numeric-capacity
+    :alphanumeric-capacity
+    :byte-capacity
     :dimension
     :version-information-required?
     :error-correction-level
@@ -303,6 +334,9 @@
                  (:error-correction-codeword-count-per-block value))
        (s/valid? ::block-groups (:block-groups value))
        (s/valid? ::numeric-capacity (:numeric-capacity value))
+       (s/valid? ::alphanumeric-capacity
+                 (:alphanumeric-capacity value))
+       (s/valid? ::byte-capacity (:byte-capacity value))
        (s/valid? ::remainder-bit-count
                  (:remainder-bit-count value))
        (s/valid? ::alignment-pattern-centers
@@ -413,23 +447,76 @@
   (:numeric-capacity
    (ordinary-qr-parameters version error-correction-level)))
 
-(defn- smallest-version-for-count
-  [character-count error-correction-level]
+(defn alphanumeric-capacity
+  "Returns the Table 7 Alphanumeric capacity for a version and EC level."
+  [version error-correction-level]
+  (:alphanumeric-capacity
+   (ordinary-qr-parameters version error-correction-level)))
+
+(defn byte-capacity
+  "Returns the Table 7 Byte capacity for a version and EC level."
+  [version error-correction-level]
+  (:byte-capacity
+   (ordinary-qr-parameters version error-correction-level)))
+
+(defn input-capacity
+  "Returns the Table 7 input capacity for one catalogued single-segment mode."
+  [mode version error-correction-level]
+  (when-not (contains? input-mode-set mode)
+    (fail! :invalid-mode
+           "Unknown catalogued ordinary QR input mode"
+           {:mode mode
+            :supported-modes input-modes}))
+  ((input-mode-capacity-key mode)
+   (ordinary-qr-parameters version error-correction-level)))
+
+(defn- smallest-version-for-count*
+  [mode input-count error-correction-level count-key]
+  (when-not (contains? input-mode-set mode)
+    (fail! :invalid-mode
+           "Unknown catalogued ordinary QR input mode"
+           {:mode mode
+            :supported-modes input-modes}))
+  (when-not (pos-int? input-count)
+    (fail! :invalid-input-count
+           "Input count must be a positive integer"
+           {:mode mode
+            :input-count input-count
+            :reason
+            (if (int? input-count)
+              :non-positive-count
+              :non-integer-count)}))
+  ;; Validate the level before scanning the catalogue so an unknown level cannot
+  ;; be misreported as an oversized payload.
+  (ordinary-qr-parameters 1 error-correction-level)
   (or
    (some (fn [{:keys [version levels]}]
-           (when (<= character-count
-                     (get-in levels
-                             [error-correction-level :numeric-capacity]))
+           (when (<= input-count
+                     (get-in
+                      levels
+                      [error-correction-level
+                       (input-mode-capacity-key mode)]))
              version))
          ordinary-qr-versions)
    (fail! :payload-too-large
-          "Numeric payload exceeds ordinary QR Version 40 capacity"
-          {:mode :numeric
-           :character-count character-count
+          (if (= mode :numeric)
+            "Numeric payload exceeds ordinary QR Version 40 capacity"
+            "Payload exceeds ordinary QR Version 40 capacity")
+          {:mode mode
+           count-key input-count
            :error-correction-level error-correction-level
            :maximum-version 40
            :maximum-capacity
-           (numeric-capacity 40 error-correction-level)})))
+           (input-capacity mode 40 error-correction-level)})))
+
+(defn smallest-version-for-count
+  "Returns the smallest version fitting a positive single-segment input count.
+
+  Numeric and Alphanumeric counts are character counts. Byte counts are octet
+  counts. This catalogue selector does not validate or encode a payload."
+  [mode input-count error-correction-level]
+  (smallest-version-for-count*
+   mode input-count error-correction-level :input-count))
 
 (defn smallest-numeric-version
   "Returns the smallest catalogued version fitting a non-empty ASCII-digit string.
@@ -454,7 +541,11 @@
            "Unknown ordinary QR error-correction level"
            {:error-correction-level error-correction-level
             :supported-error-correction-levels error-correction-levels}))
-  (smallest-version-for-count (count digits) error-correction-level))
+  (smallest-version-for-count*
+   :numeric
+   (count digits)
+   error-correction-level
+   :character-count))
 
 (s/fdef ordinary-qr-parameters
   :args (s/cat :version ::version
@@ -465,6 +556,28 @@
   :args (s/cat :version ::version
                :error-correction-level ::error-correction-level)
   :ret ::numeric-capacity)
+
+(s/fdef alphanumeric-capacity
+  :args (s/cat :version ::version
+               :error-correction-level ::error-correction-level)
+  :ret ::alphanumeric-capacity)
+
+(s/fdef byte-capacity
+  :args (s/cat :version ::version
+               :error-correction-level ::error-correction-level)
+  :ret ::byte-capacity)
+
+(s/fdef input-capacity
+  :args (s/cat :mode ::input-mode
+               :version ::version
+               :error-correction-level ::error-correction-level)
+  :ret pos-int?)
+
+(s/fdef smallest-version-for-count
+  :args (s/cat :mode ::input-mode
+               :input-count ::input-count
+               :error-correction-level ::error-correction-level)
+  :ret ::version)
 
 (s/fdef smallest-numeric-version
   :args (s/cat :digits ::numeric-payload

@@ -247,18 +247,13 @@
     :segments
     :matrix})
 
-(defn- encode-numeric*
-  [digits error-correction-level]
-  (let [version
-        (parameters/smallest-numeric-version
-         digits
-         error-correction-level)
-        data-codewords
-        (segment/numeric-data-codewords
-         digits
-         version
-         error-correction-level)
-        final-message
+(defn- compose-symbol
+  "Composes validated segment metadata and padded data codewords into a symbol.
+
+  Mode-specific analysis, packing, capacity selection, and validation stay
+  outside this private ordinary-QR construction tail."
+  [version error-correction-level segments data-codewords]
+  (let [final-message
         (message/construct-final-message
          data-codewords
          version
@@ -272,9 +267,26 @@
     {:version version
      :error-correction-level error-correction-level
      :mask-reference (:mask-reference candidate)
-     :segments [{:mode :numeric
-                 :digits digits}]
+     :segments segments
      :matrix (:matrix candidate)}))
+
+(defn- encode-numeric*
+  [digits error-correction-level]
+  (let [version
+        (parameters/smallest-numeric-version
+         digits
+         error-correction-level)
+        data-codewords
+        (segment/numeric-data-codewords
+         digits
+         version
+         error-correction-level)]
+    (compose-symbol
+     version
+     error-correction-level
+     [{:mode :numeric
+       :digits digits}]
+     data-codewords)))
 
 (defn numeric-symbol-structure?
   "Checks the provisional generalized Numeric symbol's structure.

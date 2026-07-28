@@ -57,14 +57,18 @@
      :matrix (:matrix candidate)}))
 
 (deftest generalized-numeric-symbol-composes-existing-primitives
-  (let [digits "000123456789"
-        symbol (encode/encode-numeric digits :q)]
-    (is (= (manually-compose digits :q) symbol))
-    (is (= symbol (encode/encode-numeric digits :q)))
-    (is (= digits (get-in symbol [:segments 0 :digits])))
-    (is (= numeric-symbol-keys (set (keys symbol))))
-    (is (s/valid? ::encode/numeric-symbol-structure symbol))
-    (is (encode/numeric-symbol-matches? digits :q symbol))))
+  (doseq [[digits level expected-version]
+          [["000123456789" :q 1]
+           [(repeated-digits 179) :q 7]]]
+    (testing (pr-str [expected-version level])
+      (let [symbol (encode/encode-numeric digits level)]
+        (is (= expected-version (:version symbol)))
+        (is (= (manually-compose digits level) symbol))
+        (is (= symbol (encode/encode-numeric digits level)))
+        (is (= digits (get-in symbol [:segments 0 :digits])))
+        (is (= numeric-symbol-keys (set (keys symbol))))
+        (is (s/valid? ::encode/numeric-symbol-structure symbol))
+        (is (encode/numeric-symbol-matches? digits level symbol))))))
 
 (deftest generated-generalized-symbols-satisfy-input-relative-contracts
   (let [request-gen

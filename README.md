@@ -53,14 +53,24 @@ results of all seven stages and stores its finished symbol under `:symbol`:
 (def fixed-symbol (:symbol walkthrough))
 ```
 
-### Select a catalogued Numeric version
+### Inspect capacity and select a catalogued version
 
 Phase 2 now includes a standards parameter catalogue for ordinary QR Versions 1–40
-and levels L/M/Q/H. `smallest-numeric-version` accepts a non-empty ASCII-digit string
-and returns the smallest version whose Table 7 capacity fits:
+and levels L/M/Q/H. The catalogue transcribes the Table 7 Numeric, Alphanumeric,
+and Byte capacities. The count-based `smallest-version-for-count` and
+`input-capacity` functions are provisional planning primitives:
 
 ```clojure
 (require '[qrity.parameters :as parameters])
+
+(parameters/input-capacity :alphanumeric 1 :m)
+;; => 20
+
+(parameters/input-capacity :byte 1 :m)
+;; => 14
+
+(parameters/smallest-version-for-count :alphanumeric 21 :m)
+;; => 2
 
 (parameters/smallest-numeric-version
  "1234567890123456789012345678901234"
@@ -73,19 +83,24 @@ and returns the smallest version whose Table 7 capacity fits:
 ;; => 2
 
 (select-keys (parameters/ordinary-qr-parameters 2 :m)
-             [:version :dimension :data-codeword-count :numeric-capacity
+             [:version :dimension :data-codeword-count
+              :numeric-capacity :alphanumeric-capacity :byte-capacity
               :error-correction-block-count :block-groups])
 ;; => {:version 2,
 ;;     :dimension 25,
 ;;     :data-codeword-count 28,
 ;;     :numeric-capacity 63,
+;;     :alphanumeric-capacity 38,
+;;     :byte-capacity 26,
 ;;     :error-correction-block-count 1,
 ;;     :block-groups
 ;;     [{:block-count 1, :data-codeword-count-per-block 28}]}
 ```
 
-These profiles now feed the provisional complete `encode-numeric` orchestration. The
-selector remains separately useful for planning and capacity inspection.
+Only Numeric segment packing and symbol generation are implemented. The presence of
+Alphanumeric and Byte capacities does not mean that those payloads can be encoded
+yet. `smallest-numeric-version` retains its payload validation and feeds the
+provisional complete `encode-numeric` orchestration.
 
 Table 9 block layouts and Clause 7.6 transformations are available as provisional
 pure building blocks for the generalized encoder. For example, Version 5-H has two
@@ -581,7 +596,10 @@ explicit-mask, format, version-information, candidate-binding, scoring, automati
 selection, and provisional end-to-end Numeric orchestration are implemented. Permanent
 JVM/ClojureScript/Babashka production and ZBar/OpenCV verification cover all levels
 and representative Versions 1, 2, 7, and 10. Shared tests exercise count-width
-transitions into Versions 27 and 40. The stable API remains deliberately open.
+transitions into Versions 27 and 40. Table 7 Alphanumeric and Byte capacities,
+mode-generic capacity lookup, count-based version selection, and the private
+mode-independent final-symbol construction tail are also implemented. Alphanumeric
+and Byte segment packing are not. The stable API remains deliberately open.
 
 ## Requirements for practical URL encoding
 
@@ -589,13 +607,16 @@ Typical lowercase URLs require Byte mode; QR Alphanumeric mode does not contain
 lowercase letters. The shortest path from the generalized Numeric encoder to practical
 URLs is:
 
-1. implement Byte mode indicator `0100` and its 8-bit (Versions 1–9) or 16-bit
-   (Versions 10–40) character-count field;
-2. add Byte-capacity checks and smallest-version selection for each correction level;
+1. implement Byte mode indicator `0100`, its 8-bit (Versions 1–9) or 16-bit
+   (Versions 10–40) byte-count field, and raw-octet packing;
+2. define the initial text-to-octet contract explicitly;
 3. expose a stable `encode` API returning selected mode, version, level, mask, segments,
    and binary matrix; and
 4. verify URL boundary cases with independent decoders across version/count-width
    transitions and correction levels.
+
+Table 7 Byte-capacity lookup and count-based smallest-version selection are already
+implemented and independently checked for all 160 profiles.
 
 Without ECI, the initial text contract will accept ASCII URLs directly. International
 domain names can use Punycode and non-ASCII URL components can be UTF-8
@@ -1271,13 +1292,14 @@ interoperability matrix has no unexplained failures.
 Exit evidence: release documentation makes no broader claim than the verified feature
 set, and another maintainer can reproduce all evidence.
 
-### Deferred scope
+### Mode-expansion checkpoints
 
-Alphanumeric and Byte modes, mixed segments, automatic segmentation optimization,
-FNC1, Structured Append, ECI, Kanji, Micro QR Code, and legacy Model 1 are not part of
-the roadmap above. They require a new scope decision after the Numeric implementation
-works. Kanji and Micro QR Code are explicitly not under consideration; ECI is not
-expected to be needed for the intended Numeric scope.
+The next checkpoint is Alphanumeric group packing and its direct properties, followed
+by Alphanumeric orchestration through the shared construction tail. Byte octet packing
+and an explicit text-to-octet contract follow as separate checkpoints. Mixed segments,
+automatic segmentation optimization, FNC1, Structured Append, ECI, Kanji, Micro QR
+Code, and legacy Model 1 remain deferred. Kanji and Micro QR Code are explicitly not
+under consideration; ECI is not expected for the initial supported subset.
 
 ## Work discipline
 

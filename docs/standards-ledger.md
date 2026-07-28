@@ -28,7 +28,7 @@ Official corrigenda have not yet been checked.
 
 | Stage | Detailed sources for the first slice | Implementation status | Next evidence required |
 |---|---|---|---|
-| 1. Data analysis | Clauses 7.2–7.4; Tables 2, 3, 5, and 7; Annex J | Minimum-single-mode payload classification is implemented; provisional generalized Numeric orchestration validates ASCII digits and selects the smallest Version 1–40 for explicit L/M/Q/H, while the inspectable walkthrough remains fixed Version 1-M | Optimal segmentation, Alphanumeric/Byte encoding, and non-default ECI remain unimplemented |
+| 1. Data analysis | Clauses 7.2–7.4; Tables 2, 3, 5, and 7; Annex J | Minimum-single-mode payload classification is implemented; Numeric orchestration validates ASCII digits; Table 7 Numeric, Alphanumeric, and Byte capacities support count-based Version 1–40 selection for explicit L/M/Q/H, while the inspectable walkthrough remains fixed Version 1-M | Alphanumeric/Byte packing, optimal segmentation, and non-default ECI remain unimplemented |
 | 2. Data encoding | Clauses 7.4.1, 7.4.3, 7.4.9, and 7.4.10; Tables 2, 3, and 7; Annex I.2 | Fixed pipeline plus provisional selected-profile Numeric construction: 10/12/14-bit character counts, 10/7/4-bit groups, abbreviated terminator, byte alignment, and alternating `EC`/`11` pads | Independent bit/padding reference covers all 160 maximum capacities and every 0–4-bit terminator length; V1-M is byte-identical |
 | 3. Error-correction coding | Clause 7.5; Table 9; Annex A | Fixed single-block path plus provisional independent per-block parity for all selected profiles using GF(256) primitive `0x11D` | Every completed block in all 160 profiles has zero syndromes under an independent field/evaluation implementation |
 | 4. Final message construction | Clause 7.6; Table 9; Table 1 remainder bits | Fixed Version 1 stage plus provisional data/parity interleaving and 0/3/4/7 remainder-bit assembly for all selected profiles | All 160 results satisfy exact block counts, total codewords, remainder bands, and `8T+R` message lengths |
@@ -58,7 +58,7 @@ run.
 |---|---|---|---|
 | Ordinary versions are 1–40 with dimension `17 + 4V`; version information begins at V7 | Clause 6; Clause 7.10, printed pp. 58–59 (PDF pp. 66–67) | Exhaustive derived dimension and boundary properties | Derived catalogue projections |
 | Total codewords and remainder bits for V1–40 | Table 1, printed pp. 19–20 (PDF pp. 27–28) | Complete rendered-source transcription review plus exact remainder-band and total-vector tests | Canonical batch-A version facts |
-| Data codewords and Numeric capacities for all 160 Version/L-M-Q-H rows | Table 7, printed pp. 33–36 (PDF pp. 41–44) | Every printed capacity must equal an independent calculation using Table 3 character-count widths and Clause 7.4.3 packing | Canonical batch-A level facts and version selection |
+| Data codewords and Numeric, Alphanumeric, and Byte capacities for all 160 Version/L-M-Q-H rows | Table 7, printed pp. 33–36 (PDF pp. 41–44) | All 320 added Alphanumeric/Byte cells were reconciled from the clean layout extraction; every printed maximum and maximum-plus-one is independently checked with the applicable Table 3 count width and Clause 7.4 packing formula | Canonical level facts, mode-capacity lookup, and count-based version selection; only Numeric packing is implemented |
 | Alignment-pattern center axes for V1–40 | Clause 6.3.6; normative Annex E Table E.1, printed pp. 83–84 (PDF pp. 91–92) | Complete rendered-source transcription review; exhaustive length/order/first/last invariants | Consumed by the Version 1–40 function-pattern templates |
 | Error-correction codeword totals, block counts, and equal/unequal data-block groups | Table 9, printed pp. 38–44 (PDF pp. 46–52) | All 160 canonical total-EC/block-count cells independently transcribed; all 288 printed ordinary group records uniquely consumed; zero Table 1/7/9 conservation discrepancies | Canonical catalogue facts; shortest-first groups and equal EC count per block are derived and exhaustively checked |
 | Data and error-correction interleaving order | Clause 7.6; Version 5-H worked block shape | Independent column-first reference over all 160 layouts; exact unequal V5-H fixture; production per-block Reed–Solomon composition; JVM, Node, and Babashka checks | Provisional pure partition/data-interleave/EC-interleave primitives and selected-profile final-message construction |
@@ -77,4 +77,6 @@ fixed Version 1-M/mask-2 stage walkthrough remains intact. Permanent JVM, Node, 
 Babashka fixtures cover Versions 1, 2, 7, and 10; every runtime triple must be
 byte-identical and decode exactly through both ZBar and OpenCV. Shared orchestration
 tests cross the Version 26→27 and 39→40 capacity boundaries. Stable API design and
-broader high-density decoder evidence remain deferred.
+broader high-density decoder evidence remain deferred. The same catalogue now exposes
+Alphanumeric and Byte capacity planning for all 160 profiles, but does not yet encode
+either mode.
