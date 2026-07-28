@@ -17,7 +17,7 @@
 
 ;; ISO/IEC 18004:2015, Clause 7.3.4 and Table 5.
 (def ^:private alphanumeric-characters
-  (set "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:"))
+  (set bits/alphanumeric-repertoire))
 
 (defn- character-code
   [character]

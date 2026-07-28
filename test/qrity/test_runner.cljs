@@ -1,5 +1,6 @@
 (ns qrity.test-runner
   (:require [cljs.test :as test]
+            [qrity.alphanumeric-test]
             [qrity.encode-test]
             [qrity.generalized-encode-test]
             [qrity.mask-test]
@@ -25,6 +26,7 @@
 (defn -main
   [& _]
   (test/run-tests (test/empty-env)
+                  'qrity.alphanumeric-test
                   'qrity.encode-test
                   'qrity.generalized-encode-test
                   'qrity.mask-test

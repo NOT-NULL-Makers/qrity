@@ -1,4 +1,51 @@
-(ns qrity.bits)
+(ns qrity.bits
+  (:require [clojure.spec.alpha :as s]))
+
+;; ISO/IEC 18004:2015, Clause 7.4.4, Table 5. Position is character value.
+(def alphanumeric-repertoire
+  "Ordered ordinary-QR Alphanumeric repertoire in Table 5 value order."
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:")
+
+(def ^:private alphanumeric-character-values
+  (zipmap alphanumeric-repertoire (range)))
+
+(defn- fail!
+  [error message data]
+  (throw
+   (ex-info
+    message
+    (assoc data :qrity/error error :clause "7.4.4"))))
+
+(defn- validate-alphanumeric-payload!
+  [payload]
+  (when-not (string? payload)
+    (fail! :invalid-alphanumeric-payload
+           "Alphanumeric payload must be a non-empty Table 5 string"
+           {:mode :alphanumeric
+            :payload payload
+            :reason :non-string-payload}))
+  (when (empty? payload)
+    (fail! :invalid-alphanumeric-payload
+           "Alphanumeric payload must be a non-empty Table 5 string"
+           {:mode :alphanumeric
+            :payload payload
+            :reason :empty-payload}))
+  (when-let [[index character]
+             (first
+              (keep-indexed
+               (fn [index character]
+                 (when-not (contains?
+                            alphanumeric-character-values
+                            character)
+                   [index character]))
+               payload))]
+    (fail! :invalid-alphanumeric-payload
+           "Alphanumeric payload contains a character outside Table 5"
+           {:mode :alphanumeric
+            :payload payload
+            :reason :non-alphanumeric-character
+            :character-index index
+            :character (str character)})))
 
 (defn unsigned-integer->bits
   "Returns `width` most-significant-bit-first bits for a non-negative integer."
@@ -59,6 +106,28 @@
                     (unsigned-integer->bits (decimal-value group) width))))
         (partition-all 3 digits)))
 
+(defn alphanumeric-data-bits
+  "Encodes a non-empty Table 5 string under Clause 7.4.4.
+
+  Each pair is encoded as `45 × first + second` in 11 bits. A final
+  unpaired character is encoded in 6 bits. Mode and character-count
+  indicators, termination, and padding are deliberately not included."
+  [payload]
+  (validate-alphanumeric-payload! payload)
+  (into []
+        (mapcat
+         (fn [group]
+           (let [first-value
+                 (alphanumeric-character-values (first group))
+                 pair? (= 2 (count group))
+                 value
+                 (if pair?
+                   (+ (* 45 first-value)
+                      (alphanumeric-character-values (second group)))
+                   first-value)]
+             (unsigned-integer->bits value (if pair? 11 6)))))
+        (partition-all 2 payload)))
+
 (defn numeric-segment-bits
   "Builds an ordinary-QR Numeric segment without terminator or padding.
 
@@ -88,3 +157,16 @@
           pad-count (- codeword-count (count initial-codewords))]
       (into initial-codewords
             (take pad-count (cycle [0xEC 0x11]))))))
+
+(s/def ::alphanumeric-payload
+  (s/and
+   string?
+   seq
+   #(every? alphanumeric-character-values %)))
+
+(s/def ::alphanumeric-data-bits
+  (s/coll-of #{0 1} :kind vector? :min-count 6))
+
+(s/fdef alphanumeric-data-bits
+  :args (s/cat :payload ::alphanumeric-payload)
+  :ret ::alphanumeric-data-bits)

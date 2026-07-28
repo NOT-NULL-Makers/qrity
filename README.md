@@ -99,7 +99,21 @@ and Byte capacities. The count-based `smallest-version-for-count` and
 
 Only Numeric segment packing and symbol generation are implemented. The presence of
 Alphanumeric and Byte capacities does not mean that those payloads can be encoded
-yet. `smallest-numeric-version` retains its payload validation and feeds the
+yet. The isolated Alphanumeric payload-packing primitive is available for inspection:
+
+```clojure
+(require '[qrity.bits :as bits])
+
+(bits/alphanumeric-data-bits "AC-42")
+;; => [0 0 1 1 1 0 0 1 1 1 0
+;;     1 1 1 0 0 1 1 1 0 0 1
+;;     0 0 0 0 1 0]
+```
+
+This result contains only Clause 7.4.4 payload data: no mode indicator,
+character-count indicator, terminator, alignment, or padding. Consequently it is not
+a QR symbol and cannot yet be rendered or decoded. `smallest-numeric-version`
+retains its payload validation and feeds the
 provisional complete `encode-numeric` orchestration.
 
 Table 9 block layouts and Clause 7.6 transformations are available as provisional
@@ -599,7 +613,9 @@ and representative Versions 1, 2, 7, and 10. Shared tests exercise count-width
 transitions into Versions 27 and 40. Table 7 Alphanumeric and Byte capacities,
 mode-generic capacity lookup, count-based version selection, and the private
 mode-independent final-symbol construction tail are also implemented. Alphanumeric
-and Byte segment packing are not. The stable API remains deliberately open.
+Table 5 validation and 11/6-bit payload packing are implemented and exhaustively
+checked, but its mode/count fields, padding, and symbol orchestration are not. Byte
+packing is not implemented. The stable API remains deliberately open.
 
 ## Requirements for practical URL encoding
 
@@ -1294,9 +1310,11 @@ set, and another maintainer can reproduce all evidence.
 
 ### Mode-expansion checkpoints
 
-The next checkpoint is Alphanumeric group packing and its direct properties, followed
-by Alphanumeric orchestration through the shared construction tail. Byte octet packing
-and an explicit text-to-octet contract follow as separate checkpoints. Mixed segments,
+Completed: Alphanumeric Table 5 validation, value mapping, group packing, the printed
+`AC-42` example, exhaustive singleton/pair checks, and generated direct properties.
+The next checkpoint is Alphanumeric count fields, selected-profile data codewords,
+and orchestration through the shared construction tail. Byte octet packing and an
+explicit text-to-octet contract follow as separate checkpoints. Mixed segments,
 automatic segmentation optimization, FNC1, Structured Append, ECI, Kanji, Micro QR
 Code, and legacy Model 1 remain deferred. Kanji and Micro QR Code are explicitly not
 under consideration; ECI is not expected for the initial supported subset.
