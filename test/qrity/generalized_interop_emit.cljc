@@ -40,7 +40,8 @@
   (let [symbol
         ((case mode
            :numeric encode/encode-numeric
-           :alphanumeric encode/encode-alphanumeric)
+           :alphanumeric encode/encode-alphanumeric
+           :byte encode/encode-iso-8859-1)
          payload (error-correction-level level-name))
         dimension (count (:matrix symbol))]
     (write-utf-8!
@@ -60,13 +61,26 @@
             (:version symbol) "\t"
             (name (:error-correction-level symbol)) "\t"
             (:mask-reference symbol) "\t"
+            dimension)))
+    (when (= :byte mode)
+      (println
+       (str "qrity-byte="
+            output-path "\t"
+            (:version symbol) "\t"
+            (name (:error-correction-level symbol)) "\t"
+            (:mask-reference symbol) "\t"
             dimension)))))
 
 (defn -main
   [& arguments]
-  (let [alphanumeric? (= "--alphanumeric" (first arguments))
-        mode (if alphanumeric? :alphanumeric :numeric)
-        arguments (if alphanumeric? (rest arguments) arguments)]
+  (let [mode-flag (first arguments)
+        mode (case mode-flag
+               "--alphanumeric" :alphanumeric
+               "--byte" :byte
+               :numeric)
+        arguments (if (#{"--alphanumeric" "--byte"} mode-flag)
+                    (rest arguments)
+                    arguments)]
     (doseq [[level-name payload output-path]
             (argument-triples arguments)]
       (emit! mode level-name payload output-path))))

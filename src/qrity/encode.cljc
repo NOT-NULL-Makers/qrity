@@ -326,6 +326,43 @@
        :payload payload}]
      data-codewords)))
 
+(defn- smallest-byte-version
+  [octets error-correction-level]
+  ;; Validate the portable octet contract before count-based catalogue
+  ;; selection. The catalogue intentionally knows counts, not payload shape.
+  (bits/byte-data-bits octets)
+  (try
+    (parameters/smallest-version-for-count
+     :byte
+     (count octets)
+     error-correction-level)
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (let [data (ex-data error)]
+        (if (= :payload-too-large (:qrity/error data))
+          (throw
+           (ex-info
+            "Byte payload exceeds ordinary QR Version 40 capacity"
+            (-> data
+                (assoc :octet-count (count octets))
+                (dissoc :input-count))))
+          (throw error))))))
+
+(defn- encode-byte*
+  [octets error-correction-level]
+  (let [version
+        (smallest-byte-version octets error-correction-level)
+        data-codewords
+        (segment/byte-data-codewords
+         octets
+         version
+         error-correction-level)]
+    (compose-symbol
+     version
+     error-correction-level
+     [{:mode :byte
+       :octets octets}]
+     data-codewords)))
+
 (defn numeric-symbol-structure?
   "Checks the provisional generalized Numeric symbol's structure.
 
@@ -415,6 +452,50 @@
 (s/def ::alphanumeric-symbol-structure
   alphanumeric-symbol-structure?)
 
+(defn byte-symbol-structure?
+  "Checks the provisional generalized Byte symbol's structure.
+
+  This checks shape and smallest-version consistency. Use
+  `byte-symbol-matches?` when input-to-output provenance matters."
+  [value]
+  (try
+    (and
+     (map? value)
+     (let [version (:version value)
+           error-correction-level (:error-correction-level value)
+           segment-value (first (:segments value))
+           octets (:octets segment-value)
+           matrix-value (:matrix value)]
+       (and
+        (= symbol-keys (set (keys value)))
+        (s/valid? ::parameters/version version)
+        (s/valid? ::parameters/error-correction-level
+                  error-correction-level)
+        (s/valid? ::parameters/mask-reference
+                  (:mask-reference value))
+        (= [{:mode :byte :octets octets}]
+           (:segments value))
+        (s/valid? ::bits/octets octets)
+        (= version
+           (smallest-byte-version
+            octets
+            error-correction-level))
+        (let [dimension (+ 17 (* 4 version))]
+          (and
+           (vector? matrix-value)
+           (= dimension (count matrix-value))
+           (every?
+            (fn [row]
+              (and
+               (vector? row)
+               (= dimension (count row))
+               (every? #{0 1} row)))
+            matrix-value))))))
+    (catch #?(:clj Exception :cljs :default) _
+      false)))
+
+(s/def ::byte-symbol-structure byte-symbol-structure?)
+
 (defn numeric-symbol-matches?
   "Checks exact provenance of a generalized Numeric symbol for explicit inputs."
   [digits error-correction-level symbol]
@@ -430,6 +511,26 @@
     (= symbol
        (encode-alphanumeric*
         payload error-correction-level))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
+      false)))
+
+(defn byte-symbol-matches?
+  "Checks exact provenance of a Byte symbol for explicit octets."
+  [octets error-correction-level symbol]
+  (try
+    (= symbol
+       (encode-byte* octets error-correction-level))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
+      false)))
+
+(defn iso-8859-1-symbol-matches?
+  "Checks Byte-symbol provenance for explicit default-ECI text."
+  [text error-correction-level symbol]
+  (try
+    (byte-symbol-matches?
+     (bits/iso-8859-1-string->octets text)
+     error-correction-level
+     symbol)
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
       false)))
 
@@ -450,6 +551,27 @@
   excludes the four-module quiet zone. This additive API is provisional."
   [payload error-correction-level]
   (encode-alphanumeric* payload error-correction-level))
+
+(defn encode-byte
+  "Generates one provisional ordinary-QR Byte symbol from canonical octets.
+
+  `octets` must be a non-empty vector of integers from 0 through 255. The
+  default ECI interpretation applies, but no ECI header is emitted. Chooses the
+  smallest fitting Version 1 through 40 and the lowest-reference minimum-
+  penalty mask. The returned matrix excludes the quiet zone."
+  [octets error-correction-level]
+  (encode-byte* octets error-correction-level))
+
+(defn encode-iso-8859-1
+  "Generates a Byte symbol from default-ECI ISO/IEC 8859-1 text.
+
+  Every accepted UTF-16 code unit `U+0000..U+00FF` maps to one equal-valued
+  octet. Other Unicode values and malformed surrogates fail; no UTF-8 or ECI
+  header is implied. The returned segment retains canonical octets."
+  [text error-correction-level]
+  (encode-byte*
+   (bits/iso-8859-1-string->octets text)
+   error-correction-level))
 
 (s/fdef analyze-data
   :args (s/cat :state map?)
@@ -510,5 +632,27 @@
   (fn [{:keys [args ret]}]
     (alphanumeric-symbol-matches?
      (:payload args)
+     (:error-correction-level args)
+     ret)))
+
+(s/fdef encode-byte
+  :args (s/cat :octets any?
+               :error-correction-level any?)
+  :ret ::byte-symbol-structure
+  :fn
+  (fn [{:keys [args ret]}]
+    (byte-symbol-matches?
+     (:octets args)
+     (:error-correction-level args)
+     ret)))
+
+(s/fdef encode-iso-8859-1
+  :args (s/cat :text any?
+               :error-correction-level any?)
+  :ret ::byte-symbol-structure
+  :fn
+  (fn [{:keys [args ret]}]
+    (iso-8859-1-symbol-matches?
+     (:text args)
      (:error-correction-level args)
      ret)))

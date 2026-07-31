@@ -16,6 +16,13 @@
     message
     (assoc data :qrity/error error :clause "7.4.4"))))
 
+(defn- byte-fail!
+  [error message data clause]
+  (throw
+   (ex-info
+    message
+    (assoc data :qrity/error error :clause clause))))
+
 (defn- validate-alphanumeric-payload!
   [payload]
   (when-not (string? payload)
@@ -85,6 +92,77 @@
   #?(:clj (int character)
      :cljs (.charCodeAt character 0)))
 
+(defn- validate-octets!
+  [octets]
+  (when-not (vector? octets)
+    (byte-fail! :invalid-byte-payload
+                "Byte payload must be a non-empty vector of octets"
+                {:mode :byte
+                 :octets octets
+                 :reason :non-vector-payload}
+                "7.4.5"))
+  (when (empty? octets)
+    (byte-fail! :invalid-byte-payload
+                "Byte payload must be a non-empty vector of octets"
+                {:mode :byte
+                 :octets octets
+                 :reason :empty-payload}
+                "7.4.5"))
+  (when-let [[index value]
+             (first
+              (keep-indexed
+               (fn [index value]
+                 (when-not (and (int? value) (<= 0 value 255))
+                   [index value]))
+               octets))]
+    (byte-fail! :invalid-byte-payload
+                "Byte payload contains a value outside the octet range"
+                {:mode :byte
+                 :octets octets
+                 :reason :non-octet
+                 :octet-index index
+                 :value value}
+                "7.4.5")))
+
+(defn iso-8859-1-string->octets
+  "Maps a non-empty ISO/IEC 8859-1 string to equal-valued octets.
+
+  The QR default interpretation is ECI 000003. Clojure and ClojureScript
+  strings are inspected as UTF-16 code units so BMP values above `U+00FF`,
+  supplementary characters, and lone surrogates fail identically on both
+  runtimes. This function does not emit an ECI header."
+  [text]
+  (when-not (string? text)
+    (byte-fail! :invalid-iso-8859-1-text
+                "ISO/IEC 8859-1 text must be a non-empty string"
+                {:mode :byte
+                 :text text
+                 :reason :non-string-text}
+                "6.1, 7.3.2, 7.4.5"))
+  (when (empty? text)
+    (byte-fail! :invalid-iso-8859-1-text
+                "ISO/IEC 8859-1 text must be a non-empty string"
+                {:mode :byte
+                 :text text
+                 :reason :empty-payload}
+                "6.1, 7.3.2, 7.4.5"))
+  (mapv
+   (fn [code-unit-index]
+     (let [code-unit
+           (character-code (.charAt text code-unit-index))]
+       (when (> code-unit 0xFF)
+         (byte-fail!
+          :invalid-iso-8859-1-text
+          "Text contains a UTF-16 code unit outside ISO/IEC 8859-1"
+          {:mode :byte
+           :text text
+           :reason :non-iso-8859-1-code-unit
+           :code-unit-index code-unit-index
+           :code-unit code-unit}
+          "6.1, 7.3.2, 7.4.5"))
+       code-unit))
+   (range (count text))))
+
 (defn- decimal-value
   [digits]
   (reduce (fn [value character]
@@ -128,6 +206,15 @@
              (unsigned-integer->bits value (if pair? 11 6)))))
         (partition-all 2 payload)))
 
+(defn byte-data-bits
+  "Encodes a non-empty vector of octets under Clause 7.4.5.
+
+  Every octet becomes its eight most-significant-bit-first bits. Mode and
+  octet-count indicators, termination, and padding are not included."
+  [octets]
+  (validate-octets! octets)
+  (codewords->bits octets))
+
 (defn numeric-segment-bits
   "Builds an ordinary-QR Numeric segment without terminator or padding.
 
@@ -167,6 +254,31 @@
 (s/def ::alphanumeric-data-bits
   (s/coll-of #{0 1} :kind vector? :min-count 6))
 
+(s/def ::octets
+  (s/coll-of #(and (int? %) (<= 0 % 255))
+             :kind vector?
+             :min-count 1))
+
+(s/def ::byte-data-bits
+  (s/coll-of #{0 1} :kind vector? :min-count 8))
+
+(s/def ::iso-8859-1-text
+  (s/and
+   string?
+   seq
+   (fn [text]
+     (every?
+      #(<= (character-code (.charAt text %)) 0xFF)
+      (range (count text))))))
+
 (s/fdef alphanumeric-data-bits
   :args (s/cat :payload ::alphanumeric-payload)
   :ret ::alphanumeric-data-bits)
+
+(s/fdef byte-data-bits
+  :args (s/cat :octets ::octets)
+  :ret ::byte-data-bits)
+
+(s/fdef iso-8859-1-string->octets
+  :args (s/cat :text ::iso-8859-1-text)
+  :ret ::octets)

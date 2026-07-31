@@ -46,6 +46,17 @@
            "Ordinary QR version must be an integer from 1 through 40"
            {:version version})))
 
+(defn byte-character-count-bit-width
+  "Returns the ordinary-QR Byte octet-count width for `version`."
+  [version]
+  (cond
+    (and (int? version) (<= 1 version 9)) 8
+    (and (int? version) (<= 10 version 40)) 16
+    :else
+    (fail! :invalid-version
+           "Ordinary QR version must be an integer from 1 through 40"
+           {:version version})))
+
 (defn- selected-profile
   [digits version error-correction-level]
   (validate-digits! digits)
@@ -131,6 +142,54 @@
      segment-bits
      (:data-codeword-count profile))))
 
+(defn- selected-byte-profile
+  [octets version error-correction-level]
+  (let [data-bits (bits/byte-data-bits octets)
+        profile
+        (parameters/ordinary-qr-parameters
+         version error-correction-level)
+        capacity (:byte-capacity profile)
+        octet-count (count octets)]
+    (when (> octet-count capacity)
+      (fail! :payload-too-large
+             "Byte payload exceeds the selected ordinary QR profile"
+             {:mode :byte
+              :octet-count octet-count
+              :version version
+              :error-correction-level error-correction-level
+              :maximum-capacity capacity}))
+    [profile data-bits]))
+
+(defn byte-segment-bits
+  "Builds one unpadded Byte segment for a canonical version/level profile."
+  [octets version error-correction-level]
+  (let [[_ data-bits]
+        (selected-byte-profile octets version error-correction-level)]
+    (into
+     [0 1 0 0]
+     (concat
+      (bits/unsigned-integer->bits
+       (count octets)
+       (byte-character-count-bit-width version))
+      data-bits))))
+
+(defn byte-data-codewords
+  "Builds exactly the selected profile's padded Byte data codewords."
+  [octets version error-correction-level]
+  (let [[profile data-bits]
+        (selected-byte-profile octets version error-correction-level)
+        segment-bits
+        (into
+         [0 1 0 0]
+         (concat
+          (bits/unsigned-integer->bits
+           (count octets)
+           (byte-character-count-bit-width version))
+          data-bits))]
+    (bits/pad-data-codewords
+     segment-bits
+     (:data-codeword-count profile))))
+
 (defn numeric-request?
   [{:keys [digits version error-correction-level]}]
   (try
@@ -148,6 +207,14 @@
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
       false)))
 
+(defn byte-request?
+  [{:keys [octets version error-correction-level]}]
+  (try
+    (selected-byte-profile octets version error-correction-level)
+    true
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
+      false)))
+
 (s/def ::numeric-request
   (s/and
    (s/cat :digits any?
@@ -160,6 +227,12 @@
           :version any?
           :error-correction-level any?)
    alphanumeric-request?))
+(s/def ::byte-request
+  (s/and
+   (s/cat :octets any?
+          :version any?
+          :error-correction-level any?)
+   byte-request?))
 (s/def ::segment-bits
   (s/coll-of #{0 1} :kind vector? :min-count 1))
 (s/def ::data-codewords
@@ -185,4 +258,16 @@
 
 (s/fdef alphanumeric-data-codewords
   :args ::alphanumeric-request
+  :ret ::data-codewords)
+
+(s/fdef byte-character-count-bit-width
+  :args (s/cat :version any?)
+  :ret pos-int?)
+
+(s/fdef byte-segment-bits
+  :args ::byte-request
+  :ret ::segment-bits)
+
+(s/fdef byte-data-codewords
+  :args ::byte-request
   :ret ::data-codewords)

@@ -7,19 +7,19 @@ APIs, or a QR encoding dependency. Shared `.cljc` code is the preferred starting
 hypothesis where the two runtimes have reliably equivalent semantics; portability does
 not require forcing every implementation detail into one shared namespace.
 
-This repository now contains generalized Numeric and Alphanumeric generators for
-ordinary QR Versions 1–40 and correction levels L/M/Q/H. They automatically choose
+This repository now contains generalized Numeric, Alphanumeric, and Byte generators
+for ordinary QR Versions 1–40 and correction levels L/M/Q/H. They automatically choose
 the smallest fitting version and a minimum-penalty mask, returning a fully resolved
 immutable module matrix.
 The original fixed Version 1-M walkthrough remains available for studying all seven
 ISO/IEC 18004 Clause 7.1 stages. The implementation remains experimental: the
-generalized APIs are provisional, Byte mode and bundled bitmap/DOM adapters are not
-yet implemented.
+generalized APIs are provisional, and bundled bitmap/DOM adapters are not implemented.
 
 ## Generate a QR Code
 
-The provisional mode-specific entry points are `qrity.encode/encode-numeric` and
-`qrity.encode/encode-alphanumeric`. Pass a non-empty payload and one of `:l`, `:m`,
+The provisional mode-specific entry points are `qrity.encode/encode-numeric`,
+`qrity.encode/encode-alphanumeric`, `qrity.encode/encode-byte`, and
+`qrity.encode/encode-iso-8859-1`. Pass a non-empty payload and one of `:l`, `:m`,
 `:q`, or `:h`:
 
 ```clojure
@@ -48,9 +48,31 @@ Alphanumeric mode explicitly:
              [:version :error-correction-level :mask-reference])
 ```
 
-URLs such as `"https://example.com"` are not yet accepted because lowercase letters
-require Byte mode. Many typical URL characters, including `?`, `=`, `&`, and `_`, are
-also outside QR Alphanumeric mode. `modules` is an immutable vector of row vectors.
+Lowercase URLs use Byte mode. The explicitly named text adapter applies the QR default
+interpretation, ISO/IEC 8859-1 (ECI 000003), without emitting an ECI header:
+
+```clojure
+(def url-symbol
+  (qr/encode-iso-8859-1
+   "https://example.com/search?q=qr_code&lang=cs"
+   :m))
+
+(:segments url-symbol)
+;; => [{:mode :byte, :octets [104 116 116 112 115 ...]}]
+```
+
+For already encoded binary data, use a non-empty vector of unsigned integer octets:
+
+```clojure
+(def binary-symbol
+  (qr/encode-byte [0 1 127 128 255] :q))
+```
+
+The text adapter maps every `U+0000..U+00FF` code unit one-to-one. It is not
+Windows-1252 or UTF-8: `é` and `ÿ` are accepted, while `€`, `Ā`, emoji, and malformed
+surrogates fail explicitly. International domain names can use Punycode, and
+non-Latin-1 URL components can be UTF-8 percent-encoded into ASCII first.
+`modules` is an immutable vector of row vectors.
 Each cell is `1` for a dark module or `0` for a light module, with `[0 0]` at the
 top-left of the symbol. The matrix is the authoritative generated QR Code. The
 surrounding four-module quiet zone is deliberately not part of the matrix and must be
@@ -111,10 +133,8 @@ and Byte capacities. The count-based `smallest-version-for-count` and
 ;;     [{:block-count 1, :data-codeword-count-per-block 28}]}
 ```
 
-Numeric and Alphanumeric single-segment packing and complete symbol generation are
-implemented. Byte capacities are planning data only; Byte payloads cannot yet be
-encoded. The isolated Alphanumeric payload-packing primitive remains available for
-inspection:
+Numeric, Alphanumeric, and Byte single-segment packing and complete symbol generation
+are implemented. Isolated payload-packing primitives remain available for inspection:
 
 ```clojure
 (require '[qrity.bits :as bits])
@@ -123,6 +143,12 @@ inspection:
 ;; => [0 0 1 1 1 0 0 1 1 1 0
 ;;     1 1 1 0 0 1 1 1 0 0 1
 ;;     0 0 0 0 1 0]
+
+(bits/byte-data-bits [0 127 128 255])
+;; => [0 0 0 0 0 0 0 0
+;;     0 1 1 1 1 1 1 1
+;;     1 0 0 0 0 0 0 0
+;;     1 1 1 1 1 1 1 1]
 ```
 
 This result contains only Clause 7.4.4 payload data: no mode indicator,
@@ -313,7 +339,8 @@ bb -cp src -e \
 ```
 
 Replace the encoder call in either expression with
-`(qr/encode-alphanumeric "AC-42" :m)` for Alphanumeric data.
+`(qr/encode-alphanumeric "AC-42" :m)` for Alphanumeric data or
+`(qr/encode-iso-8859-1 "https://example.com" :m)` for a lowercase URL.
 
 The checked-in generation wrappers exercise the same PBM path through Clojure,
 ClojureScript/Node, and Babashka:
@@ -325,6 +352,13 @@ scripts/generate-generalized-clojurescript.sh \
   --alphanumeric m "AC-42" /tmp/qrity-ac42-cljs.pbm
 scripts/generate-generalized-babashka.sh \
   --alphanumeric m "AC-42" /tmp/qrity-ac42-bb.pbm
+
+scripts/generate-generalized-clojure.sh \
+  --byte m "https://example.com/?a=1&b=2" /tmp/qrity-url-clojure.pbm
+scripts/generate-generalized-clojurescript.sh \
+  --byte m "https://example.com/?a=1&b=2" /tmp/qrity-url-cljs.pbm
+scripts/generate-generalized-babashka.sh \
+  --byte m "https://example.com/?a=1&b=2" /tmp/qrity-url-bb.pbm
 ```
 
 The renderer includes the four-module quiet zone by default. It is pure and shared
@@ -493,14 +527,14 @@ reference 2.
   invalid symbol.
 
 “Correct” means that behavior matches the applicable rules for the explicitly supported
-subset. The Numeric/Alphanumeric implementation remains experimental and makes no
+subset. The Numeric/Alphanumeric/Byte implementation remains experimental and makes no
 ISO/IEC 18004 conformance claim. A partial implementation must report unsupported
 features and must not turn a narrowed feature declaration into an unsupported claim of
 conformance.
 
 ## Initial scope
 
-The first implementation milestone is now deliberately narrow:
+The first implementation milestone was deliberately narrow:
 
 - ordinary Model 2 QR Code only;
 - Numeric mode only;
@@ -508,11 +542,11 @@ The first implementation milestone is now deliberately narrow:
 - explicit parameters before automatic version or mask selection; and
 - correctness and inspectability before optimization.
 
-Micro QR Code and Kanji mode are not being considered. ECI is also outside the current
-scope and is not needed for Numeric mode. Alphanumeric and Byte modes, FNC1, Structured
-Append, mixed-mode planning, and automatic length optimization are deferred until a
-Numeric symbol works end to end and decodes independently. Deferral is not an implicit
-commitment to implement those features later.
+That historical milestone deferred Alphanumeric and Byte until a Numeric symbol worked
+end to end and decoded independently. Both modes have since passed their own explicit
+scope decisions and standards checks. Micro QR Code, Kanji, FNC1, Structured Append,
+mixed-mode planning, automatic length optimization, and non-default ECI remain outside
+the current supported subset.
 
 After the fixed Version 1-M example works, Numeric mode can expand across ordinary QR
 versions and error-correction levels. Any later widening of the mode or symbology scope
@@ -524,7 +558,7 @@ The shared `.cljc` implementation currently provides:
 
 - a pure whole-payload classifier for the least sufficient single mode among Numeric,
   Alphanumeric, and default-ECI Byte, with non-ISO/IEC 8859-1 text reported as
-  unsupported; this is not yet a segment planner or new encoding capability;
+  unsupported; this remains a classifier rather than an automatic segment planner;
 - executable specs for every fixed-profile stage, including bits, codewords, blocks,
   placement coordinates, construction matrices, and the final binary matrix;
 - all seven Clause 7.1 stage functions in normative order, accepting 1–34 ASCII
@@ -567,6 +601,9 @@ The shared `.cljc` implementation currently provides:
 - provisional pure end-to-end Alphanumeric generation with exact Table 5 validation,
   9/11/13-bit count fields, automatic smallest-version selection, and the shared
   minimum-penalty-mask construction tail;
+- provisional pure end-to-end Byte generation from canonical octet vectors, with
+  8/16/16-bit count fields, exact octet provenance, automatic smallest-version
+  selection, and an explicit default-ECI ISO/IEC 8859-1 text adapter;
 - pure Annex C format calculation for all 32 level/mask combinations, Annex D version
   calculation for Versions 7–40, and atomic resolution of both redundant metadata
   copies across all ordinary versions; and
@@ -575,9 +612,8 @@ The shared `.cljc` implementation currently provides:
 The current standards references and unresolved Annex I mask conflict are recorded in
 the [standards ledger](docs/standards-ledger.md).
 
-`encode-numeric` and `encode-alphanumeric` return provisional generalized symbols and
-choose the smallest version and minimum-penalty mask for the explicit correction
-level.
+The mode-specific encoders return provisional generalized symbols and choose the
+smallest version and minimum-penalty mask for the explicit correction level.
 `encode-numeric-v1-m` remains the complete fixed stage state; its `:symbol` entry is
 the fixed-profile result. The shared JVM and Node-hosted ClojureScript tests include
 generated payloads, stage invariants, and the Annex I.2 vector and run with:
@@ -594,6 +630,7 @@ The current interoperability matrix can be reproduced on a machine with ZBar
 python3 scripts/verify_interoperability.py
 python3 scripts/verify_generalized_interoperability.py
 python3 scripts/verify_generalized_interoperability.py --mode alphanumeric
+python3 scripts/verify_generalized_interoperability.py --mode byte
 ```
 
 Each script creates a new non-destructive evidence directory under `/tmp` by default;
@@ -605,15 +642,20 @@ producer/runtime/decoder versions, resolved decoder paths, artifact paths and ha
 and results. Missing OpenCV or ZBar fails with a persisted `status: failed` report in
 the fresh evidence directory.
 
-The generalized verifier runs either five Numeric fixtures or, with
-`--mode alphanumeric`, six Alphanumeric fixtures through JVM,
-ClojureScript/Node, and Babashka. It compiles ClojureScript only once, requires each
+The generalized verifier runs five Numeric fixtures or six Alphanumeric/Byte fixtures
+through JVM, ClojureScript/Node, and Babashka. It compiles ClojureScript only once, requires each
 runtime triple to be byte-identical, checks emitted version/level/mask/dimension
 metadata, and decodes every artifact twice. The Alphanumeric corpus covers all
 correction levels, the complete Table 5 repertoire, Versions 1, 2, 7, and 10,
 Version-7 metadata onset, and the first Alphanumeric count-width transition. Shared
 encoder tests separately exercise the Version 26→27 transition; decoder coverage for
 denser capacity-boundary symbols remains a hardening task.
+
+The Byte corpus covers all correction levels, ordinary lowercase URL punctuation,
+Versions 1, 2, 3, 7, and 10, Version-information onset, and the 8→16-bit count-width
+transition. Decoder fixtures are ASCII because the tools expose text rather than a
+guaranteed byte-preserving interface; raw `0..255` identity packing is checked by an
+independent shared-test oracle.
 
 The 2026-07-24 reference run used Python 3.13.5, OpenJDK 25.0.3, Clojure CLI
 1.12.4.1618, Clojure 1.12.0, ClojureScript 1.12.145, Node 20.19.2,
@@ -632,17 +674,17 @@ report paths printed by a run are intentionally not repository state.
 
 ## Current roadmap status
 
-As of 2026-07-28, progress against the original implementation plan is:
+As of 2026-07-31, progress against the original implementation plan is:
 
 | Phase | Status | Remaining work |
 |---|---|---|
 | Phase 0 — executable Clause 7.1 walkthrough | Complete | None |
 | Phase 1 — fixed Version 1-M Numeric vertical slice | Complete | None |
-| Phase 2 — Numeric and Alphanumeric across ordinary Versions 1–40 | Complete, provisional mode-specific APIs | Byte mode and stable API decisions remain |
+| Phase 2 — Numeric, Alphanumeric, and Byte across ordinary Versions 1–40 | Complete, provisional mode-specific APIs | Stable automatic API decisions remain |
 | Phase 3 — mask selection and hardening | In progress | Broaden permanent high-density decoder coverage and optional differential checks |
 | Phase 4 — stable API and release evidence | Not started | Stable generalized encoder, final compatibility surface, and release documentation |
 
-The Version 1–40/L-M-Q-H parameter, Numeric/Alphanumeric message, function-matrix, placement,
+The Version 1–40/L-M-Q-H parameter, mode-specific message, function-matrix, placement,
 explicit-mask, format, version-information, candidate-binding, scoring, automatic
 selection, and provisional end-to-end Numeric orchestration are implemented. Permanent
 JVM/ClojureScript/Babashka production and ZBar/OpenCV verification cover all levels
@@ -652,31 +694,27 @@ mode-generic capacity lookup, count-based version selection, and the private
 mode-independent final-symbol construction tail are also implemented. Alphanumeric
 Table 5 validation, 11/6-bit payload packing, 9/11/13-bit count fields,
 selected-profile padding, and complete symbol orchestration are implemented. Byte
-packing is not implemented. The stable API remains deliberately open.
+identity packing, 8/16-bit count fields, canonical octet provenance, and default
+ISO/IEC 8859-1 conversion are implemented. The stable automatic API remains open.
 
 ## Requirements for practical URL encoding
 
 Typical lowercase URLs require Byte mode; QR Alphanumeric mode does not contain
-lowercase letters. The shortest path from the mode-specific encoders to practical URLs
-is:
-
-1. implement Byte mode indicator `0100`, its 8-bit (Versions 1–9) or 16-bit
-   (Versions 10–40) byte-count field, and raw-octet packing;
-2. define the initial text-to-octet contract explicitly;
-3. expose a stable `encode` API returning selected mode, version, level, mask, segments,
-   and binary matrix; and
-4. verify URL boundary cases with independent decoders across version/count-width
-   transitions and correction levels.
+lowercase letters. Practical URL generation is now implemented through the explicit
+`encode-iso-8859-1` entry point, using mode `0100`, 8/16-bit octet counts, raw-octet
+identity packing, and independent decoder checks across version/count-width
+transitions and correction levels.
 
 Table 7 Byte-capacity lookup and count-based smallest-version selection are already
 implemented and independently checked for all 160 profiles.
 
-Without ECI, the initial text contract will accept ASCII URLs directly. International
+The default-ECI text contract accepts ISO/IEC 8859-1 URLs directly. International
 domain names can use Punycode and non-ASCII URL components can be UTF-8
-percent-encoded, leaving an ASCII QR payload. Other non-ASCII input should fail
-explicitly until the project deliberately adopts an interoperable UTF-8 convention or
-a verified UTF-8 ECI assignment. Alphanumeric mode can be added later as a capacity
-optimization for compatible uppercase payloads; it is not required for general URLs.
+percent-encoded, leaving an ASCII QR payload. Unicode outside Latin-1 fails explicitly
+until the project deliberately adopts an interoperable UTF-8 convention or verified
+ECI assignment. A future stable generic `encode` API still needs an explicit policy
+for automatic mode choice versus segmentation optimization; it is not required to
+generate practical URLs.
 
 ## Non-goals
 
@@ -1148,9 +1186,9 @@ dependencies.
 
 Differential tests must compare like with like. Two correct encoders can choose
 different segments, versions, or masks for the same payload. Exact codeword or matrix
-comparison is meaningful only when the Numeric segment, version, error-correction
-level, and mask are fixed. If Byte mode is ever added, exact comparison will also have
-to pin payload bytes, character encoding, and any ECI choice. Otherwise the appropriate
+comparison is meaningful only when the mode, segment, version, error-correction level,
+and mask are fixed. For Byte mode, exact comparison also has to pin payload octets,
+character interpretation, and whether any ECI header is present. Otherwise the appropriate
 assertion is semantic round-trip through independent decoders plus structural
 inspection of the produced symbol.
 
@@ -1347,10 +1385,9 @@ set, and another maintainer can reproduce all evidence.
 
 ### Mode-expansion checkpoints
 
-Completed: Alphanumeric Table 5 validation, value mapping, group packing, the printed
-`AC-42` example, 9/11/13-bit count fields, selected-profile data codewords, and complete
-symbol orchestration. The next checkpoint is Byte octet packing and an explicit
-text-to-octet contract. Mixed segments,
+Completed: Numeric, Alphanumeric, and Byte single-segment construction and complete
+symbol orchestration, including canonical octets and an explicit ISO/IEC 8859-1 text
+adapter. The next mode/API checkpoint is a stable automatic-mode policy. Mixed segments,
 automatic segmentation optimization, FNC1, Structured Append, ECI, Kanji, Micro QR
 Code, and legacy Model 1 remain deferred. Kanji and Micro QR Code are explicitly not
 under consideration; ECI is not expected for the initial supported subset.
@@ -1383,7 +1420,7 @@ them. Each gate must close before the named commitment:
 | Shared `.cljc` boundaries | Preferred hypothesis | Bit/byte/arithmetic parity probes in both runtimes; clarity review | Project skeleton becomes stable |
 | Logical matrix vs required bundled renderers | Open; matrix is authoritative | Consumer needs and Clause 9 obligation map | Stabilizing the public API |
 | Public API and error-return convention | Open | Domain model, invalid-input taxonomy, REPL ergonomics | First public namespace |
-| Widen beyond Numeric mode | Deferred; no Micro QR or Kanji, and no current ECI need | A working Numeric implementation, explicit human scope decision, and feature-specific standard map | Any additional mode or symbology work |
+| Widen beyond Numeric mode | Closed for single-segment Alphanumeric and default-ECI Byte; Micro QR, Kanji, and non-default ECI remain excluded | Working Numeric baseline, explicit human scope decisions, feature-specific standard maps, and independent decoder evidence were supplied | Reopen before any additional mode or symbology work |
 | Caller-supplied segments, versions, and masks | Open | Testing needs, supported-subset semantics, API complexity | Automatic planning API |
 | Stable matrix representation | Initial construction uses row-major vectors with rich cell states; public form open | Placement/reservation property prototypes and consumer experience | Stabilizing the matrix API |
 | Spec-generator and property-test dependencies | Phase 0 decided: `test.check` 1.1.3 | Shared generated tests pass on JVM and Node; revisit compatibility and shrinking quality before changing dependencies | Any dependency change or stable release |

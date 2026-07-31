@@ -3,6 +3,8 @@
             [qrity.alphanumeric-encode-test]
             [qrity.alphanumeric-segment-test]
             [qrity.alphanumeric-test]
+            [qrity.byte-encode-test]
+            [qrity.byte-segment-test]
             [qrity.encode-test]
             [qrity.generalized-encode-test]
             [qrity.mask-test]
@@ -21,6 +23,8 @@
         (test/run-tests 'qrity.alphanumeric-encode-test
                         'qrity.alphanumeric-segment-test
                         'qrity.alphanumeric-test
+                        'qrity.byte-encode-test
+                        'qrity.byte-segment-test
                         'qrity.encode-test
                         'qrity.generalized-encode-test
                         'qrity.mask-test

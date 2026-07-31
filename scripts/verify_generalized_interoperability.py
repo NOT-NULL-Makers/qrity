@@ -119,6 +119,56 @@ ALPHANUMERIC_FIXTURES = (
     },
 )
 
+
+def repeated_byte_text(length: int) -> str:
+    return "a" * length
+
+
+BYTE_FIXTURES = (
+    {
+        "label": "minimum-m",
+        "level": "m",
+        "payload": "a",
+        "expected_version": 1,
+        "expected_mask_reference": 5,
+    },
+    {
+        "label": "url-q",
+        "level": "q",
+        "payload": "https://example.com/",
+        "expected_version": 2,
+        "expected_mask_reference": 7,
+    },
+    {
+        "label": "query-h",
+        "level": "h",
+        "payload": "https://x.test/?a=1&b=2",
+        "expected_version": 3,
+        "expected_mask_reference": 0,
+    },
+    {
+        "label": "maximum-v1-l",
+        "level": "l",
+        "payload": repeated_byte_text(17),
+        "expected_version": 1,
+        "expected_mask_reference": 6,
+    },
+    {
+        "label": "version-7-q",
+        "level": "q",
+        "payload": repeated_byte_text(86),
+        "expected_version": 7,
+        "expected_mask_reference": 1,
+    },
+    {
+        "label": "version-10-l",
+        "level": "l",
+        "payload": repeated_byte_text(231),
+        "expected_version": 10,
+        "expected_mask_reference": 1,
+    },
+)
+
 RUNTIMES = {
     "jvm": "scripts/generate-generalized-clojure.sh",
     "node": "scripts/generate-generalized-clojurescript.sh",
@@ -134,7 +184,8 @@ def generation_arguments(
     mode: str = "numeric",
     fixtures: tuple[dict[str, Any], ...] = NUMERIC_FIXTURES,
 ) -> list[str]:
-    arguments: list[str] = ["--alphanumeric"] if mode == "alphanumeric" else []
+    mode_flags = {"alphanumeric": "--alphanumeric", "byte": "--byte"}
+    arguments: list[str] = [mode_flags[mode]] if mode in mode_flags else []
     for fixture in fixtures:
         arguments.extend(
             [
@@ -207,23 +258,25 @@ def verify(
     output_root: Path, mode: str = "numeric"
 ) -> tuple[Path, dict[str, Any]]:
     repository = Path(__file__).resolve().parent.parent
-    fixtures = (
-        ALPHANUMERIC_FIXTURES
-        if mode == "alphanumeric"
-        else NUMERIC_FIXTURES
-    )
-    metadata_prefix = (
-        "qrity-alphanumeric="
-        if mode == "alphanumeric"
-        else METADATA_PREFIX
-    )
+    fixtures_by_mode = {
+        "numeric": NUMERIC_FIXTURES,
+        "alphanumeric": ALPHANUMERIC_FIXTURES,
+        "byte": BYTE_FIXTURES,
+    }
+    metadata_prefixes = {
+        "numeric": METADATA_PREFIX,
+        "alphanumeric": "qrity-alphanumeric=",
+        "byte": "qrity-byte=",
+    }
+    fixtures = fixtures_by_mode[mode]
+    metadata_prefix = metadata_prefixes[mode]
     output_root.mkdir(parents=True, exist_ok=True)
     run_directory = Path(
         tempfile.mkdtemp(
             prefix=(
                 "qrity-generalized-interop-"
                 if mode == "numeric"
-                else "qrity-alphanumeric-interop-"
+                else f"qrity-{mode}-interop-"
             ),
             dir=output_root,
         )
@@ -239,18 +292,19 @@ def verify(
             "error_correction_levels": ["l", "m", "q", "h"],
             "leading_zeros": mode == "numeric",
             "table_5_repertoire": mode == "alphanumeric",
-            "version_transitions": [
-                "1-to-2",
-                "6-to-7",
-                "9-to-10",
-            ],
+            "default_eci_iso_8859_1": mode == "byte",
+            "ascii_url_fixtures": mode == "byte",
+            "version_transitions": (
+                ["9-to-10"]
+                if mode == "byte"
+                else ["1-to-2", "6-to-7", "9-to-10"]
+            ),
+            "versions_exercised": (
+                [1, 2, 3, 7, 10] if mode == "byte" else [1, 2, 7, 10]
+            ),
             "version_information_onset": 7,
             "count_width_transition": "9-to-10",
-            **(
-                {"numeric_count_width_transition": "9-to-10"}
-                if mode == "numeric"
-                else {"alphanumeric_count_width_transition": "9-to-10"}
-            ),
+            f"{mode}_count_width_transition": "9-to-10",
         },
         "renderer": {
             "format": "Plain PBM P1",
@@ -415,7 +469,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=("numeric", "alphanumeric"),
+        choices=("numeric", "alphanumeric", "byte"),
         default="numeric",
         help="single-segment mode to verify",
     )
