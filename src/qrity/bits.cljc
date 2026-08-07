@@ -216,16 +216,12 @@
   (codewords->bits octets))
 
 (defn numeric-segment-bits
-  "Builds an ordinary-QR Numeric segment without terminator or padding.
-
-  The one-argument form preserves the fixed Version 1–9 behavior."
-  ([digits]
-   (numeric-segment-bits digits 10))
-  ([digits character-count-width]
-   (into [0 0 0 1]
-         (concat
-          (unsigned-integer->bits (count digits) character-count-width)
-          (numeric-data-bits digits)))))
+  "Builds an ordinary-QR Numeric segment without terminator or padding."
+  [digits character-count-width]
+  (into [0 0 0 1]
+        (concat
+         (unsigned-integer->bits (count digits) character-count-width)
+         (numeric-data-bits digits))))
 
 (defn pad-data-codewords
   "Terminates, byte-aligns, and pads segment bits to `codeword-count`."

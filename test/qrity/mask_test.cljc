@@ -154,10 +154,7 @@
       (is (= placed
              (matrix/apply-data-mask
               masked
-              mask-reference)))
-      (when (= 2 mask-reference)
-        (is (= masked
-               (matrix/apply-mask-2 placed)))))))
+              mask-reference))))))
 
 (deftest version-two-remainder-bits-are-masked-as-encoding-modules
   (let [template (matrix/function-matrix 2)

@@ -287,8 +287,6 @@
                    :mismatches alignment-mismatches})))))
 
 (deftest version-boundary-and-maximum-fixtures
-  (is (= (matrix/function-matrix)
-         (matrix/function-matrix 1)))
   (let [version-2 (matrix/function-matrix 2)]
     (is (= 25 (count version-2)))
     (is (= :reserved-dark (get-in version-2 [18 18])))

@@ -97,7 +97,10 @@
                         state
                         ::qspec/analyzed-state)
   (let [digits (get-in state [:segments 0 :digits])
-        segment-bits (bits/numeric-segment-bits digits)
+        segment-bits
+        (bits/numeric-segment-bits
+         digits
+         qspec/numeric-v1-m-character-count-bit-width)
         data-codewords
         (bits/pad-data-codewords
          segment-bits
@@ -152,7 +155,7 @@
                         state
                         ::qspec/final-message-state)
   (let [{:keys [matrix data-coordinates]}
-        (matrix/place-data (matrix/function-matrix)
+        (matrix/place-data (matrix/function-matrix 1)
                            (:message-bits state))]
     (assoc state
            :matrix matrix
@@ -168,7 +171,7 @@
                         state
                         ::qspec/placed-state)
   (assoc state
-         :matrix (matrix/apply-mask-2 (:matrix state))
+         :matrix (matrix/apply-data-mask (:matrix state) 2)
          :completed-stages
          (subvec clause-7-1-stage-order 0 6)))
 
@@ -184,7 +187,7 @@
    ::qspec/masked-state)
   (let [final-matrix
         (-> (:matrix state)
-            (matrix/add-format-information 2)
+            (matrix/add-format-information :m 2)
             matrix/final-bit-matrix)
         symbol {:version 1
                 :error-correction-level :m

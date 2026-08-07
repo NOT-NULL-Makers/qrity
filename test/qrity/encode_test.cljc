@@ -7,6 +7,7 @@
             [qrity.bits :as bits]
             [qrity.encode :as encode]
             [qrity.matrix :as matrix]
+            [qrity.metadata :as metadata]
             [qrity.reed-solomon :as reed-solomon]
             [qrity.spec :as qspec]
             #?(:clj [clojure.test :refer [deftest is testing]]
@@ -254,7 +255,7 @@
 
 (deftest final-message-and-placement-fill-version-one-exactly
   (let [{:keys [messaged placed]} (states-for "01234567")
-        function-matrix (matrix/function-matrix)]
+        function-matrix (matrix/function-matrix 1)]
     (is (= 26 (count (:message-codewords messaged))))
     (is (= 208 (count (:message-bits messaged))))
     (is (= 208 (count (:data-coordinates placed))))
@@ -283,11 +284,11 @@
 
 (deftest format-information-is-derived-and-placed-twice
   (let [masked (:masked (states-for "01234567"))
-        formatted (matrix/add-format-information (:matrix masked) 2)
+        formatted (matrix/add-format-information (:matrix masked) :m 2)
         expected [1 0 1 1 1 1 0 0 1 1 1 1 1 0 0]
         least-significant-first (vec (reverse expected))
         cell-bit {:reserved-light 0 :reserved-dark 1}]
-    (is (= expected (matrix/format-information-bits 2)))
+    (is (= expected (metadata/format-information-bits :m 2)))
     ;; ISO/IEC 18004:2015 Figure 25 numbers these two physical
     ;; coordinate traversals in opposite bit orders.
     (is (= expected

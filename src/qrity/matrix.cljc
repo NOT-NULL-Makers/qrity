@@ -226,16 +226,13 @@
 (defn function-matrix
   "Builds an ordinary-QR function-pattern and metadata-reservation template.
 
-  The quiet zone is excluded. The zero-argument form remains fixed to Version 1.
-  Format and version-information modules are reserved but unresolved."
-  ([]
-   (function-matrix 1))
-  ([version]
-   (canonical-function-matrix version)))
+  The quiet zone is excluded. Format and version-information modules are
+  reserved but unresolved."
+  [version]
+  (canonical-function-matrix version))
 
 (s/fdef function-matrix
-  :args (s/alt :fixed (s/cat)
-               :selected (s/cat :version ::parameters/version))
+  :args (s/cat :version ::parameters/version)
   :ret ::function-matrix)
 
 (defn- inferred-version
@@ -463,21 +460,13 @@
        (= coordinates (traverse-data-coordinates matrix))
        (placement-matches-message-bits? ret message-bits)))))
 
-(defn format-information-bits
-  "Returns ordinary-QR format information, most significant bit first.
-
-  The one-argument form preserves the fixed level M API."
-  ([mask-reference]
-   (metadata/format-information-bits mask-reference))
-  ([error-correction-level mask-reference]
-   (metadata/format-information-bits
-    error-correction-level
-    mask-reference)))
-
 (defn add-format-information
-  [matrix mask-reference]
+  "Writes both format-information copies for an explicit level and mask."
+  [matrix error-correction-level mask-reference]
   (let [most-significant-first
-        (format-information-bits mask-reference)
+        (metadata/format-information-bits
+         error-correction-level
+         mask-reference)
         least-significant-first
         (vec (reverse most-significant-first))
         format-cell (fn [bit]
@@ -611,11 +600,6 @@
    (metadata-ready-matrix? after)
    (s/valid? ::parameters/mask-reference mask-reference)
    (= after (apply-data-mask* before mask-reference))))
-
-(defn apply-mask-2
-  "Compatibility wrapper for ordinary QR data mask reference 010."
-  [matrix]
-  (apply-data-mask matrix 2))
 
 (defn- metadata-complete-matrix-for-version?
   [value version]
@@ -753,16 +737,6 @@
           :mask-reference any?)
    metadata-request?))
 
-(s/fdef format-information-bits
-  :args
-  (s/alt :fixed-level
-         (s/cat :mask-reference ::metadata/mask-reference)
-         :explicit-level
-         (s/cat :error-correction-level
-                ::parameters/error-correction-level
-                :mask-reference ::metadata/mask-reference))
-  :ret ::metadata/format-information-bits)
-
 (s/fdef apply-data-mask
   :args ::data-mask-request
   :ret ::metadata-ready-matrix
@@ -772,16 +746,6 @@
      (:matrix args)
      ret
      (:mask-reference args))))
-
-(s/fdef apply-mask-2
-  :args (s/cat :matrix ::metadata-ready-matrix)
-  :ret ::metadata-ready-matrix
-  :fn
-  (fn [{:keys [args ret]}]
-    (data-mask-application-matches?
-     (:matrix args)
-     ret
-     2)))
 
 (s/fdef resolve-metadata
   :args ::metadata-request

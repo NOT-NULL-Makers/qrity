@@ -79,15 +79,11 @@
     (bit-xor (bit-or shifted remainder) format-xor-mask)))
 
 (defn format-information-bits
-  "Returns the masked 15-bit ordinary-QR format word, most significant bit first.
-
-  The one-argument form preserves the original fixed-profile level M behavior."
-  ([mask-reference]
-   (format-information-bits :m mask-reference))
-  ([error-correction-level mask-reference]
-   (bits/unsigned-integer->bits
-    (format-information-value error-correction-level mask-reference)
-    format-information-bit-count)))
+  "Returns the masked 15-bit ordinary-QR format word, most significant bit first."
+  [error-correction-level mask-reference]
+  (bits/unsigned-integer->bits
+   (format-information-value error-correction-level mask-reference)
+   format-information-bit-count))
 
 (defn- require-version-information-version!
   [version]
@@ -118,13 +114,9 @@
      version-information-bit-count)))
 
 (s/fdef format-information-bits
-  :args
-  (s/alt :fixed-level
-         (s/cat :mask-reference ::mask-reference)
-         :explicit-level
-         (s/cat :error-correction-level
-                ::parameters/error-correction-level
-                :mask-reference ::mask-reference))
+  :args (s/cat :error-correction-level
+               ::parameters/error-correction-level
+               :mask-reference ::mask-reference)
   :ret ::format-information-bits)
 
 (s/fdef version-information-bits

@@ -7,6 +7,9 @@
 ;; ISO/IEC 18004:2015, Table 7: Version 1-M has capacity for 34
 ;; Numeric characters.
 (def numeric-v1-m-capacity 34)
+;; ISO/IEC 18004:2015, Table 3: Numeric character-count width for
+;; Versions 1 through 9.
+(def numeric-v1-m-character-count-bit-width 10)
 (def version-1-m-data-codeword-count 16)
 (def version-1-m-error-correction-codeword-count 10)
 (def version-1-total-codeword-count 26)
@@ -253,7 +256,10 @@
    (exact-keys? encoded-state-keys state)
    (= [:data-analysis :data-encoding] (:completed-stages state))
    (let [digits (get-in state [:request :payload])
-         expected-segment-bits (bits/numeric-segment-bits digits)
+         expected-segment-bits
+         (bits/numeric-segment-bits
+          digits
+          numeric-v1-m-character-count-bit-width)
          expected-codewords
          (bits/pad-data-codewords
           expected-segment-bits
@@ -326,7 +332,7 @@
                 (subvec clause-7-1-stage-order 0 4))
          expected-placement
          (when (final-message-state? predecessor)
-           (matrix/place-data (matrix/function-matrix)
+           (matrix/place-data (matrix/function-matrix 1)
                               (:message-bits state)))]
      (and (final-message-state? predecessor)
           (= (:data-coordinates expected-placement)
@@ -348,7 +354,7 @@
                 (subvec clause-7-1-stage-order 0 4))
          placement
          (when (final-message-state? message-state)
-           (matrix/place-data (matrix/function-matrix)
+           (matrix/place-data (matrix/function-matrix 1)
                               (:message-bits state)))
          predecessor
          (when placement
@@ -358,7 +364,7 @@
                   :completed-stages
                   (subvec clause-7-1-stage-order 0 5)))]
      (and (placed-state? predecessor)
-          (= (matrix/apply-mask-2 (:matrix placement))
+          (= (matrix/apply-data-mask (:matrix placement) 2)
              (:matrix state))))))
 
 (s/def ::masked-state masked-state?)
@@ -375,11 +381,11 @@
                 (subvec clause-7-1-stage-order 0 4))
          placement
          (when (final-message-state? message-state)
-           (matrix/place-data (matrix/function-matrix)
+           (matrix/place-data (matrix/function-matrix 1)
                               (:message-bits state)))
          masked-matrix
          (when placement
-           (matrix/apply-mask-2 (:matrix placement)))
+           (matrix/apply-data-mask (:matrix placement) 2))
          predecessor
          (when placement
            (assoc (select-keys state placed-state-keys)
@@ -390,7 +396,7 @@
          expected-final-matrix
          (when placement
            (-> masked-matrix
-               (matrix/add-format-information 2)
+               (matrix/add-format-information :m 2)
                matrix/final-bit-matrix))]
      (and (masked-state? predecessor)
           (= expected-final-matrix (:matrix state))

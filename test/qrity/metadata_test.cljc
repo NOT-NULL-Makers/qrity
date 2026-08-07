@@ -215,8 +215,6 @@
               [left-index right-index])))]
       (is (empty? mismatches)
           (pr-str {:mismatches mismatches})))
-    (is (= (metadata/format-information-bits :m 2)
-           (metadata/format-information-bits 2)))
     (is (= [1 0 1 1 1 1 0 0 1 1 1 1 1 0 0]
            (metadata/format-information-bits :m 2)))
     (is (= [1 0 0 0 0 0 0 1 1 0 0 1 1 1 0]
