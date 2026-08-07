@@ -69,6 +69,57 @@
               (exception-data
                #(reed-solomon/correct-codewords damaged degree))))))))
 
+(defn- garbled
+  [block positions]
+  (reduce (fn [codewords [position magnitude]]
+            (update codewords position bit-xor magnitude))
+          block
+          (map vector positions (iterate inc 55))))
+
+(deftest corrects-pure-erasures-up-to-the-full-parity-degree
+  (let [{:keys [block]} (block-with-errors 16 10 4242 0)
+        positions [0 3 5 8 11 14 17 20 22 25]]
+    (doseq [erasure-count [1 4 7 10]]
+      (testing (str erasure-count " erasures")
+        (let [erased (vec (take erasure-count positions))
+              result (reed-solomon/correct-codewords
+                      (garbled block erased) 10 erased)]
+          (is (= block (:codewords result)))
+          (is (zero? (:error-count result)))
+          (is (= erasure-count (:erasure-count result))))))))
+
+(deftest corrects-errors-and-erasures-at-the-capacity-boundary
+  ;; 2·errors + erasures = degree exactly.
+  (let [{:keys [block]} (block-with-errors 16 10 777 0)
+        damaged (garbled block [1 6 12 2 9 19 24])
+        result (reed-solomon/correct-codewords damaged 10 [1 6 12 24])]
+    (is (= block (:codewords result)))
+    (is (= 3 (:error-count result)))
+    (is (= 4 (:erasure-count result)))
+    (is (= [1 2 6 9 12 19 24] (:error-positions result)))))
+
+(deftest erased-positions-with-correct-values-cost-nothing-extra
+  (let [{:keys [block]} (block-with-errors 16 10 31337 0)
+        result (reed-solomon/correct-codewords block 10 [2 7 13])]
+    (is (= block (:codewords result)))
+    (is (zero? (:error-count result)))))
+
+(deftest refuses-errors-and-erasures-beyond-capacity
+  (let [{:keys [block]} (block-with-errors 16 10 8888 0)
+        damaged (garbled block [1 6 12 15 2 9 19 24])]
+    (is (= :uncorrectable-codewords
+           (:qrity/error
+            (exception-data
+             #(reed-solomon/correct-codewords damaged 10 [1 6 12 24])))))))
+
+(deftest refuses-invalid-erasure-positions
+  (let [{:keys [block]} (block-with-errors 16 10 5150 0)]
+    (doseq [positions [[0 0] [-1] [26] ["3"]]]
+      (is (= :invalid-erasure-positions
+             (:qrity/error
+              (exception-data
+               #(reed-solomon/correct-codewords block 10 positions))))))))
+
 (deftest syndromes-detect-any-single-corruption
   (let [{:keys [block]} (block-with-errors 16 10 999 0)]
     (doseq [position [0 7 15 20 25]]

@@ -107,6 +107,40 @@
     (is (<= 1 (:corrected-error-count decoded) 4))
     (is (= matrix (:reconstructed-matrix decoded)))))
 
+(defn- erase-modules
+  [bit-matrix coordinates]
+  (reduce (fn [matrix coordinate]
+            (assoc-in matrix coordinate nil))
+          bit-matrix
+          coordinates))
+
+(deftest treats-unknown-modules-as-erasures
+  (let [{:keys [matrix]} (encode/encode-numeric "8675309" :m)
+        ;; Unknown modules scattered across the placement so they touch
+        ;; more codewords than the five-error limit could absorb if they
+        ;; counted as errors.
+        unknown (erase-modules matrix
+                               [[9 0] [9 10] [9 20] [12 4] [12 15]
+                                [15 2] [15 12] [18 18]])
+        decoded (decode/decode-matrix unknown)]
+    (is (= "8675309" (:payload decoded)))
+    (is (<= 6 (:corrected-erasure-count decoded) 8)
+        "the unknowns must span more codewords than the error capacity")
+    (is (= matrix (:reconstructed-matrix decoded)))))
+
+(deftest corrects-mixed-unknown-and-flipped-modules
+  (let [{:keys [matrix]} (encode/encode-numeric "8675309" :m)
+        damaged (-> matrix
+                    (erase-modules (for [row (range 9 12)
+                                         column (range 0 3)]
+                                     [row column]))
+                    (flip-module [15 16]))
+        decoded (decode/decode-matrix damaged)]
+    (is (= "8675309" (:payload decoded)))
+    (is (<= 1 (:corrected-error-count decoded)))
+    (is (<= 1 (:corrected-erasure-count decoded)))
+    (is (= matrix (:reconstructed-matrix decoded)))))
+
 (deftest refuses-damage-beyond-the-correction-capacity
   (let [{:keys [matrix]} (encode/encode-numeric "8675309" :m)
         damaged (reduce flip-module

@@ -65,13 +65,19 @@
 ;; Decoding — syndrome computation and error correction
 ;;
 ;; The decoding half works over the same field with the same generator roots
-;; α^0 .. α^(degree-1). Correction is the textbook chain: syndromes,
-;; Berlekamp–Massey for the error-locator polynomial, a Chien-style root
-;; search over the received positions, and Forney's formula (with b = 0, so
-;; the magnitude carries one factor of the position value) for the error
-;; magnitudes. Polynomials in this half are kept lowest-degree-first, the
-;; conventional orientation for these algorithms; the codeword vectors at the
-;; boundary stay highest-degree-first like the encoder's.
+;; α^0 .. α^(degree-1), and corrects both errors (position unknown) and
+;; erasures (position known, value untrusted). The chain: syndromes; the
+;; erasure locator Γ from the known positions; modified syndromes S·Γ; the
+;; Sugiyama variant of the extended Euclidean algorithm for the error
+;; locator σ and evaluator Ω — chosen over Berlekamp–Massey because one
+;; stopping rule handles errors and erasures uniformly; a Chien-style root
+;; search of the combined locator Ψ = σ·Γ over the received positions; and
+;; Forney's formula (b = 0, so the magnitude carries one factor of the
+;; position value) for the magnitudes. Capacity: 2·errors + erasures may
+;; not exceed the parity degree. Polynomials in this half are kept
+;; lowest-degree-first, the conventional orientation for these algorithms;
+;; the codeword vectors at the boundary stay highest-degree-first like the
+;; encoder's.
 
 (def ^:private exponentials
   "α^i for i in 0..254; α = 2 generates the multiplicative group."
@@ -110,69 +116,84 @@
                   received-codewords))
         (range degree)))
 
-(defn- add-scaled-shifted
-  "polynomial + scale·x^shift·other, all lowest-degree-first."
-  [polynomial scale shift other]
-  (let [length (max (count polynomial) (+ shift (count other)))]
-    (mapv (fn [index]
-            (bit-xor (nth polynomial index 0)
-                     (if (>= index shift)
-                       (gf-multiply scale (nth other (- index shift) 0))
-                       0)))
-          (range length))))
+(defn- trimmed
+  "Drops trailing zero coefficients, keeping at least one."
+  [polynomial]
+  (loop [length (count polynomial)]
+    (if (and (> length 1) (zero? (nth polynomial (dec length))))
+      (recur (dec length))
+      (subvec polynomial 0 length))))
 
-(defn- error-locator-polynomial
-  "Berlekamp–Massey: the minimal connection polynomial for the syndromes.
+(defn- zero-polynomial?
+  [polynomial]
+  (every? zero? polynomial))
 
-  Returns the lowest-degree-first locator σ with σ(0) = 1 and its register
-  length L; L is the claimed error count and exceeds the correctable bound
-  when the block is too damaged."
-  [syndrome-values]
-  (loop [iteration 0
-         locator [1]
-         register-length 0
-         previous [1]
-         previous-discrepancy 1
-         gap 1]
-    (if (= iteration (count syndrome-values))
-      {:locator locator :register-length register-length}
-      (let [discrepancy
-            (reduce (fn [value term-index]
-                      (bit-xor value
-                               (gf-multiply
-                                (nth locator term-index 0)
-                                (nth syndrome-values
-                                     (- iteration term-index)))))
-                    0
-                    (range (inc register-length)))]
-        (cond
-          (zero? discrepancy)
-          (recur (inc iteration) locator register-length
-                 previous previous-discrepancy (inc gap))
+(defn- polynomial-degree
+  [polynomial]
+  (dec (count (trimmed polynomial))))
 
-          (<= (* 2 register-length) iteration)
-          (recur (inc iteration)
-                 (add-scaled-shifted
-                  locator
-                  (gf-divide discrepancy previous-discrepancy)
-                  gap
-                  previous)
-                 (- (inc iteration) register-length)
-                 locator
-                 discrepancy
-                 1)
+(defn- polynomial-add
+  [left right]
+  (mapv (fn [index]
+          (bit-xor (nth left index 0) (nth right index 0)))
+        (range (max (count left) (count right)))))
 
-          :else
-          (recur (inc iteration)
-                 (add-scaled-shifted
-                  locator
-                  (gf-divide discrepancy previous-discrepancy)
-                  gap
-                  previous)
-                 register-length
-                 previous
-                 previous-discrepancy
-                 (inc gap)))))))
+(defn- polynomial-divmod
+  "Divides lowest-degree-first polynomials into [quotient remainder]."
+  [numerator divisor]
+  (let [divisor (trimmed divisor)
+        divisor-degree (dec (count divisor))
+        divisor-lead (peek divisor)]
+    (loop [remainder (trimmed numerator)
+           quotient [0]]
+      (let [remainder-degree (dec (count remainder))]
+        (if (or (zero-polynomial? remainder)
+                (< remainder-degree divisor-degree))
+          [quotient remainder]
+          (let [shift (- remainder-degree divisor-degree)
+                factor (gf-divide (peek remainder) divisor-lead)
+                scaled (into (vec (repeat shift 0))
+                             (mapv #(gf-multiply factor %) divisor))
+                quotient (if (< (count quotient) (inc shift))
+                           (into quotient
+                                 (repeat (- (inc shift) (count quotient)) 0))
+                           quotient)]
+            (recur (trimmed (polynomial-add remainder scaled))
+                   (assoc quotient shift factor))))))))
+
+(defn- erasure-locator
+  "Γ(x) = ∏ (1 + X_j·x) over the erased positions' position values."
+  [erasure-positions block-length]
+  (reduce (fn [polynomial position]
+            (polynomial-multiply
+             polynomial
+             [1 (nth exponentials
+                     (mod (- block-length 1 position) 255))]))
+          [1]
+          erasure-positions))
+
+(defn- solve-key-equation
+  "Sugiyama: extended Euclid over x^degree and the modified syndromes.
+
+  Divides down the remainder sequence until 2·deg(remainder) falls below
+  degree + erasure-count; the running cofactor of the syndromes is then the
+  error locator σ and the remainder is the evaluator Ω."
+  [modified-syndromes degree erasure-count]
+  (loop [previous-remainder (conj (vec (repeat degree 0)) 1)
+         remainder (trimmed modified-syndromes)
+         previous-sigma [0]
+         sigma [1]]
+    (if (or (zero-polynomial? remainder)
+            (< (* 2 (polynomial-degree remainder))
+               (+ degree erasure-count)))
+      {:sigma sigma :omega remainder}
+      (let [[quotient next-remainder]
+            (polynomial-divmod previous-remainder remainder)]
+        (recur remainder
+               next-remainder
+               sigma
+               (polynomial-add previous-sigma
+                               (polynomial-multiply quotient sigma)))))))
 
 (defn- error-positions
   "Chien-style search: indexes whose position value inverts a locator root.
@@ -212,74 +233,113 @@
         (mapcat (fn [term] [term 0]))
         odd-terms))
 
-(defn- error-evaluator
-  "Ω(x) = S(x)·σ(x) mod x^degree, lowest-degree-first."
-  [syndrome-values locator degree]
+(defn- polynomial-product-modulo
+  "(syndromes·polynomial) mod x^degree, lowest-degree-first."
+  [syndrome-values polynomial degree]
   (mapv (fn [index]
           (reduce (fn [value term-index]
                     (bit-xor value
                              (gf-multiply
-                              (nth locator term-index 0)
+                              (nth polynomial term-index 0)
                               (nth syndrome-values (- index term-index) 0))))
                   0
                   (range (inc index))))
         (range degree)))
 
+(defn- validate-erasure-positions!
+  [erasure-positions block-length]
+  (when-not (and (vector? erasure-positions)
+                 (every? #(and (int? %) (< -1 % block-length))
+                         erasure-positions)
+                 (apply distinct? true erasure-positions))
+    (throw
+     (ex-info
+      "Erasure positions must be distinct block indexes"
+      {:qrity/error :invalid-erasure-positions
+       :erasure-positions erasure-positions
+       :block-length block-length
+       :clause "7.5.2"}))))
+
 (defn correct-codewords
-  "Corrects up to ⌊degree/2⌋ codeword errors in one received block.
+  "Corrects codeword errors and erasures in one received block.
 
   `received-codewords` is a complete highest-degree-first block — data
   codewords followed by `degree` parity codewords, as the QR message carries
-  them. Returns
+  them. `erasure-positions` names block indexes whose values are untrusted
+  (any guess may stand in for them); twice the unknown-position errors plus
+  the erasures may not exceed `degree`. Returns
 
       {:codewords corrected-block
        :error-count 2
-       :error-positions [4 17]}
+       :erasure-count 3
+       :error-positions [4 9 17 20 25]}
 
-  with `:error-count` zero and the block unchanged when the syndromes are
-  already clear. Throws `:qrity/error :uncorrectable-codewords` when more
-  than ⌊degree/2⌋ positions are damaged, when the locator's roots do not
-  account for its degree, or when the corrected block still fails the
-  syndrome check."
-  [received-codewords degree]
-  (let [syndrome-values (syndromes received-codewords degree)]
-    (if (every? zero? syndrome-values)
-      {:codewords received-codewords
-       :error-count 0
-       :error-positions []}
-      (let [{:keys [locator register-length]}
-            (error-locator-polynomial syndrome-values)
-            positions (error-positions locator (count received-codewords))
-            uncorrectable!
-            (fn [reason]
-              (throw
-               (ex-info
-                "The received block carries more errors than the parity can correct"
+  where `:error-positions` lists every corrected index, erased or not, and
+  the counts stay zero/unchanged when the syndromes are already clear.
+  Throws `:qrity/error :uncorrectable-codewords` when the damage exceeds
+  that capacity, when the locator's roots do not account for its degree, or
+  when the corrected block still fails the syndrome check."
+  ([received-codewords degree]
+   (correct-codewords received-codewords degree []))
+  ([received-codewords degree erasure-positions]
+   (let [block-length (count received-codewords)
+         erasure-count (count erasure-positions)]
+     (validate-erasure-positions! erasure-positions block-length)
+     (let [syndrome-values (syndromes received-codewords degree)
+           uncorrectable!
+           (fn [reason data]
+             (throw
+              (ex-info
+               "The received block is damaged beyond the parity's correction capacity"
+               (merge
                 {:qrity/error :uncorrectable-codewords
                  :reason reason
-                 :error-capacity (quot degree 2)
-                 :claimed-error-count register-length
-                 :located-error-count (count positions)
-                 :clause "7.5.2"})))]
-        (when (> register-length (quot degree 2))
-          (uncorrectable! :error-capacity-exceeded))
-        (when-not (= register-length (count positions))
-          (uncorrectable! :locator-roots-unaccounted))
-        (let [evaluator (error-evaluator syndrome-values locator degree)
-              odd-terms (expand-derivative (locator-derivative locator))
-              corrected
-              (reduce
-               (fn [codewords index]
-                 (update codewords index
-                         bit-xor
-                         (error-magnitude
-                          evaluator
-                          odd-terms
-                          (- (count received-codewords) 1 index))))
-               received-codewords
-               positions)]
-          (when-not (every? zero? (syndromes corrected degree))
-            (uncorrectable! :correction-failed-verification))
-          {:codewords corrected
-           :error-count (count positions)
-           :error-positions positions})))))
+                 :parity-degree degree
+                 :erasure-count erasure-count
+                 :clause "7.5.2"}
+                data))))]
+       (when (> erasure-count degree)
+         (uncorrectable! :erasure-capacity-exceeded {}))
+       (if (every? zero? syndrome-values)
+         {:codewords received-codewords
+          :error-count 0
+          :erasure-count erasure-count
+          :error-positions []}
+         (let [gamma (erasure-locator erasure-positions block-length)
+               modified-syndromes (polynomial-product-modulo
+                                   syndrome-values gamma degree)
+               {:keys [sigma omega]} (solve-key-equation
+                                      modified-syndromes degree erasure-count)
+               error-count (polynomial-degree sigma)]
+           (when (zero? (first sigma))
+             (uncorrectable! :singular-error-locator {}))
+           (when (> (+ (* 2 error-count) erasure-count) degree)
+             (uncorrectable! :error-capacity-exceeded
+                             {:claimed-error-count error-count}))
+           (let [combined-locator (trimmed
+                                   (polynomial-multiply sigma gamma))
+                 positions (error-positions combined-locator block-length)]
+             (when-not (= (count positions)
+                          (polynomial-degree combined-locator))
+               (uncorrectable! :locator-roots-unaccounted
+                               {:claimed-error-count error-count
+                                :located-position-count (count positions)}))
+             (let [odd-terms (expand-derivative
+                              (locator-derivative combined-locator))
+                   corrected
+                   (reduce
+                    (fn [codewords index]
+                      (update codewords index
+                              bit-xor
+                              (error-magnitude
+                               omega
+                               odd-terms
+                               (- block-length 1 index))))
+                    received-codewords
+                    positions)]
+               (when-not (every? zero? (syndromes corrected degree))
+                 (uncorrectable! :correction-failed-verification {}))
+               {:codewords corrected
+                :error-count error-count
+                :erasure-count erasure-count
+                :error-positions positions}))))))))

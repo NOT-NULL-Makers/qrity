@@ -534,7 +534,11 @@
             bitmap top-left top-right bottom-left dimension module-size))))
 
 (defn sample-grid
-  "Samples the pixel under each module center into a 0/1 module matrix."
+  "Samples the pixel under each module center into a module matrix.
+
+  A module whose center falls outside the picture samples as nil — an
+  unknown module the decoder treats as a Reed-Solomon erasure — rather
+  than failing the whole symbol."
   [{:keys [width height] :as bitmap} {:keys [transform dimension]}]
   (mapv
    (fn [row]
@@ -545,14 +549,8 @@
                                      (+ row 0.5))
               pixel-x (int (Math/floor x))
               pixel-y (int (Math/floor y))]
-          (when-not (and (< -1 pixel-x width) (< -1 pixel-y height))
-            (fail! :sampling-outside-image
-                   "The sampling grid leaves the image"
-                   {:module [row column]
-                    :pixel [pixel-x pixel-y]
-                    :width width
-                    :height height}))
-          (pixel bitmap pixel-x pixel-y)))
+          (when (and (< -1 pixel-x width) (< -1 pixel-y height))
+            (pixel bitmap pixel-x pixel-y))))
       (range dimension)))
    (range dimension)))
 

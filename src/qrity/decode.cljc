@@ -134,7 +134,9 @@
 
   Reserved metadata and function modules keep their template cells, so the
   result is exactly the encoder's metadata-ready shape and the encoder's own
-  mask transform applies unchanged."
+  mask transform applies unchanged. An unknown (nil) module gets a light
+  placeholder; its coordinate is separately reported as an erasure and the
+  guess never survives uncorrected."
   [bit-matrix template]
   (mapv (fn [bit-row template-row]
           (mapv (fn [bit template-cell]
@@ -146,18 +148,31 @@
         bit-matrix
         template))
 
-(defn- extract-message-codewords
-  "Unmasks the encoding region and reads it back in placement order."
+(defn- extract-message
+  "Unmasks the encoding region and reads it back in placement order.
+
+  Returns the message codewords together with the sorted indexes of
+  codewords touched by unknown (nil) modules — the erasures."
   [bit-matrix version mask-reference total-codeword-count]
   (let [template (matrix/function-matrix version)
         unmasked (matrix/apply-data-mask
                   (construction-matrix bit-matrix template)
                   mask-reference)
+        coordinates (matrix/data-coordinates template)
         message-bits (mapv #(if (= :dark (get-in unmasked %)) 1 0)
-                           (matrix/data-coordinates template))]
+                           coordinates)
+        message-bit-count (* 8 total-codeword-count)]
     ;; Remainder bits carry no message content and are ignored when present.
-    (bits/bits->codewords
-     (subvec message-bits 0 (* 8 total-codeword-count)))))
+    {:message-codewords (bits/bits->codewords
+                         (subvec message-bits 0 message-bit-count))
+     :erased-codeword-indexes
+     (into (sorted-set)
+           (keep-indexed
+            (fn [bit-index coordinate]
+              (when (and (< bit-index message-bit-count)
+                         (nil? (get-in bit-matrix coordinate)))
+                (quot bit-index 8))))
+           coordinates)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Deinterleaving and parity verification (Clauses 7.6 and 7.5.2)
@@ -182,25 +197,62 @@
             (vec (repeat (count lengths) []))
             (map vector placement-order codewords))))
 
+(defn- block-erasure-positions
+  "Maps erased interleaved codeword indexes onto per-block positions.
+
+  Replaying the deinterleave over index vectors yields, for each block, the
+  interleaved index of every one of its codewords; membership in the erased
+  set then names the erased positions inside the block, data and parity
+  alike."
+  [erased-codeword-indexes lengths parity-count data-codeword-count]
+  (let [data-index-blocks
+        (deinterleave-codewords (vec (range data-codeword-count)) lengths)
+        parity-index-blocks
+        (deinterleave-codewords
+         (mapv #(+ data-codeword-count %)
+               (range (* parity-count (count lengths))))
+         (vec (repeat (count lengths) parity-count)))]
+    (mapv (fn [data-indexes parity-indexes block-length]
+            (into []
+                  (concat
+                   (keep-indexed
+                    (fn [position interleaved-index]
+                      (when (contains? erased-codeword-indexes
+                                       interleaved-index)
+                        position))
+                    data-indexes)
+                   (keep-indexed
+                    (fn [position interleaved-index]
+                      (when (contains? erased-codeword-indexes
+                                       interleaved-index)
+                        (+ block-length position)))
+                    parity-indexes))))
+          data-index-blocks
+          parity-index-blocks
+          lengths)))
+
 (defn- correct-blocks
   "Reed-Solomon-corrects each received block, or refuses the whole message.
 
-  Returns the corrected data blocks and the total corrected error count.
-  A block whose damage exceeds the parity's correction capacity makes the
-  message uncorrectable; the failing blocks are named in the error."
-  [data-blocks error-correction-blocks parity-count]
+  Returns the corrected data blocks with the total corrected error and
+  erasure counts. A block whose damage exceeds the parity's correction
+  capacity makes the message uncorrectable; the failing blocks are named in
+  the error."
+  [data-blocks error-correction-blocks parity-count erasures-per-block]
   (let [corrections
-        (mapv (fn [data-block parity-block]
+        (mapv (fn [data-block parity-block erasure-positions]
                 (try
                   (reed-solomon/correct-codewords
                    (into data-block parity-block)
-                   parity-count)
+                   parity-count
+                   erasure-positions)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default)
                          error
                     (when-not (ex-data error) (throw error))
                     nil)))
               data-blocks
-              error-correction-blocks)
+              error-correction-blocks
+              erasures-per-block)
         uncorrectable-blocks
         (into []
               (keep-indexed (fn [block-index correction]
@@ -218,7 +270,9 @@
                           (subvec codewords 0 (count data-block)))
                         data-blocks
                         corrections)
-     :corrected-error-count (transduce (map :error-count) + corrections)}))
+     :corrected-error-count (transduce (map :error-count) + corrections)
+     :corrected-erasure-count (transduce (map :erasure-count)
+                                         + corrections)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Bit-stream parsing (Clause 7.4)
@@ -372,6 +426,17 @@
 ;; ---------------------------------------------------------------------------
 ;; Public entry point
 
+(defn- decodable-matrix?
+  "A square module matrix whose cells are 0, 1, or nil for unknown."
+  [value]
+  (and (vector? value)
+       (pos? (count value))
+       (every? (fn [row]
+                 (and (vector? row)
+                      (= (count value) (count row))
+                      (every? #(or (nil? %) (= 0 %) (= 1 %)) row)))
+               value)))
+
 (defn- version-for-dimension
   [dimension]
   (let [version (quot (- dimension 17) 4)]
@@ -417,15 +482,19 @@
        :payload \"867...\"
        :reconstructed-matrix [[...]]}
 
-  Up to ⌊parity/2⌋ damaged codewords per block are Reed-Solomon-corrected
-  and counted in `:corrected-error-count`; `:reconstructed-matrix` is the
-  pristine symbol re-encoded from the corrected codewords. Byte-mode results
+  A module may be nil, meaning its value is unknown — a sample that fell
+  outside the picture, or a region a caller knows is covered. Unknown
+  modules become Reed-Solomon erasures, which cost half of what errors
+  cost: per block, 2·errors + erasures may not exceed the parity count.
+  Repairs are reported in `:corrected-error-count` and
+  `:corrected-erasure-count`, and `:reconstructed-matrix` is the pristine
+  symbol re-encoded from the corrected codewords. Byte-mode results
   additionally carry `:octets`; `:payload` is then the ISO/IEC 8859-1
   reading of those octets. Failures are structured `ex-info` values."
   [bit-matrix]
-  (when-not (render/binary-square-matrix? bit-matrix)
+  (when-not (decodable-matrix? bit-matrix)
     (fail! :invalid-matrix
-           "Decoding requires a square vector matrix of 0 and 1 modules"
+           "Decoding requires a square matrix of 0, 1, or nil (unknown) modules"
            {:matrix bit-matrix}
            "6.3.1"))
   (let [version (version-for-dimension (count bit-matrix))
@@ -434,11 +503,12 @@
         profile (parameters/ordinary-qr-parameters
                  version
                  error-correction-level)
-        message-codewords (extract-message-codewords
-                           bit-matrix
-                           version
-                           mask-reference
-                           (:total-codeword-count profile))
+        {:keys [message-codewords erased-codeword-indexes]}
+        (extract-message
+         bit-matrix
+         version
+         mask-reference
+         (:total-codeword-count profile))
         lengths (block-lengths (:block-groups profile))
         data-codeword-count (reduce + lengths)
         data-blocks (deinterleave-codewords
@@ -451,14 +521,22 @@
                                  (vec (repeat (count lengths)
                                               parity-count)))
         {corrected-blocks :data-blocks
-         :keys [corrected-error-count]}
-        (correct-blocks data-blocks error-correction-blocks parity-count)
+         :keys [corrected-error-count corrected-erasure-count]}
+        (correct-blocks data-blocks
+                        error-correction-blocks
+                        parity-count
+                        (block-erasure-positions
+                         erased-codeword-indexes
+                         lengths
+                         parity-count
+                         data-codeword-count))
         data-codewords (into [] (mapcat identity) corrected-blocks)]
     (merge {:version version
             :error-correction-level error-correction-level
             :mask-reference mask-reference
             :format-hamming-distance hamming-distance
             :corrected-error-count corrected-error-count
+            :corrected-erasure-count corrected-erasure-count
             :reconstructed-matrix (reconstruct-matrix
                                    data-codewords
                                    version
@@ -472,6 +550,7 @@
 (s/def ::character-count pos-int?)
 (s/def ::payload (s/and string? seq))
 (s/def ::corrected-error-count nat-int?)
+(s/def ::corrected-erasure-count nat-int?)
 (s/def ::reconstructed-matrix ::render/binary-square-matrix)
 
 (s/def ::decoded-symbol
@@ -480,12 +559,15 @@
                    ::parameters/mask-reference
                    ::format-hamming-distance
                    ::corrected-error-count
+                   ::corrected-erasure-count
                    ::reconstructed-matrix
                    ::mode
                    ::character-count
                    ::payload]
           :opt-un [::bits/octets]))
 
+(s/def ::decodable-matrix decodable-matrix?)
+
 (s/fdef decode-matrix
-  :args (s/cat :bit-matrix ::render/binary-square-matrix)
+  :args (s/cat :bit-matrix ::decodable-matrix)
   :ret ::decoded-symbol)
