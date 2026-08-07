@@ -1,9 +1,9 @@
 # Decoding Exploration — Reading QR Codes from Pictures
 
-Status: exploratory. This document and the `qrity.decode`, `qrity.image`, and
-`qrity.image-io` namespaces live on the `explore/decoding-from-images` branch. They
-propose and partially evidence an approach; they do not commit the project to a
-public decoding API.
+Status: exploratory, merged into `master` on 2026-08-07. This document and the
+`qrity.decode`, `qrity.image`, and `qrity.image-io` namespaces propose and
+partially evidence an approach; they do not commit the project to a public
+decoding API, and the decision gates below remain open.
 
 ## Problem definition
 
