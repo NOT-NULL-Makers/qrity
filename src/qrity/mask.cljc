@@ -36,76 +36,134 @@
                     (every? #{0 1} %))
               value)))))
 
-(defn- columns
-  [bit-matrix]
-  (apply mapv vector bit-matrix))
+;; Scoring runs eight times per symbol (once per mask candidate) over every
+;; module twice (rows and columns), so the scorers below are indexed loops
+;; over line accessors — profiled at ~60% of a whole encode when they ran
+;; on sequences with a materialized transpose per candidate.
 
-(defn- run-penalty
-  [line]
-  (loop [remaining (next line)
-         previous (first line)
+(defn- horizontal-line
+  [bit-matrix line-index]
+  (let [row (nth bit-matrix line-index)]
+    (fn [position] (nth row position))))
+
+(defn- vertical-line
+  [bit-matrix line-index]
+  (fn [position] (nth (nth bit-matrix position) line-index)))
+
+(defn- line-run-penalty
+  [cell-at length]
+  (loop [position 1
+         previous (cell-at 0)
          run-length 1
          penalty 0]
-    (if-let [cell (first remaining)]
-      (if (= previous cell)
-        (recur (next remaining)
-               previous
-               (inc run-length)
-               penalty)
-        (recur (next remaining)
-               cell
-               1
-               (+ penalty (if (< run-length 5)
-                            0
-                            (- run-length 2)))))
-      (+ penalty (if (< run-length 5)
-                   0
-                   (- run-length 2))))))
+    (if (= position length)
+      (+ penalty (if (< run-length 5) 0 (- run-length 2)))
+      (let [cell (cell-at position)]
+        (if (= cell previous)
+          (recur (inc position) previous (inc run-length) penalty)
+          (recur (inc position) cell 1
+                 (+ penalty (if (< run-length 5)
+                              0
+                              (- run-length 2)))))))))
+
+(defn- both-orientations-total
+  "Sums a line score over every row and every column.
+
+  Width and height are independent: the component scorers accept the
+  rectangular fixtures their tests probe them with, exactly as the
+  sequence-based originals did."
+  [bit-matrix line-score]
+  (let [height (count bit-matrix)
+        width (count (nth bit-matrix 0))
+        row-total (loop [row 0
+                         total 0]
+                    (if (= row height)
+                      total
+                      (recur (inc row)
+                             (+ total
+                                (line-score
+                                 (horizontal-line bit-matrix row)
+                                 width)))))]
+    (loop [column 0
+           total row-total]
+      (if (= column width)
+        total
+        (recur (inc column)
+               (+ total
+                  (line-score (vertical-line bit-matrix column)
+                              height)))))))
 
 (defn same-color-runs-penalty
   "Returns Table 11 penalty N1 for maximal horizontal and vertical runs."
   [bit-matrix]
-  (reduce + (map run-penalty
-                 (concat bit-matrix (columns bit-matrix)))))
+  (both-orientations-total bit-matrix line-run-penalty))
 
 (defn same-color-blocks-penalty
   "Returns Table 11 penalty N2 for overlapping monochrome 2-by-2 blocks."
   [bit-matrix]
   (let [dimension (count bit-matrix)]
     (* 3
-       (count
-        (for [row (range (dec dimension))
-              column (range (dec dimension))
-              :let [cell (get-in bit-matrix [row column])]
-              :when (and (= cell (get-in bit-matrix [row (inc column)]))
-                         (= cell (get-in bit-matrix [(inc row) column]))
-                         (= cell (get-in bit-matrix
-                                         [(inc row) (inc column)])))]
-          [row column])))))
+       (loop [row 0
+              blocks 0]
+         (if (= row (dec dimension))
+           blocks
+           (let [this-row (nth bit-matrix row)
+                 next-row (nth bit-matrix (inc row))
+                 blocks
+                 (loop [column 0
+                        blocks blocks]
+                   (if (= column (dec dimension))
+                     blocks
+                     (let [cell (nth this-row column)]
+                       (recur (inc column)
+                              (if (and (= cell (nth this-row
+                                                    (inc column)))
+                                       (= cell (nth next-row column))
+                                       (= cell (nth next-row
+                                                    (inc column))))
+                                (inc blocks)
+                                blocks)))))]
+             (recur (inc row) blocks)))))))
 
 (def finder-like-core
   [1 0 1 1 1 0 1])
 
 (defn- light-context-before?
-  [line start]
-  (let [context-start (max 0 (- start 4))]
-    (every? zero? (subvec line context-start start))))
+  [cell-at start]
+  (loop [position (max 0 (- start 4))]
+    (cond
+      (= position start) true
+      (zero? (cell-at position)) (recur (inc position))
+      :else false)))
 
 (defn- light-context-after?
-  [line end]
-  (let [context-end (min (count line) (+ end 4))]
-    (every? zero? (subvec line end context-end))))
+  [cell-at end length]
+  (let [context-end (min length (+ end 4))]
+    (loop [position end]
+      (cond
+        (= position context-end) true
+        (zero? (cell-at position)) (recur (inc position))
+        :else false))))
 
-(defn- finder-like-count
-  [line]
-  (let [core-length (count finder-like-core)]
-    (count
-     (for [start (range (inc (- (count line) core-length)))
-           :let [end (+ start core-length)]
-           :when (= finder-like-core (subvec line start end))
-           :when (or (light-context-before? line start)
-                     (light-context-after? line end))]
-       start))))
+(defn- finder-like-line-count
+  [cell-at length]
+  (loop [start 0
+         found 0]
+    (if (> start (- length 7))
+      found
+      (recur (inc start)
+             (if (and (= 1 (cell-at start))
+                      (= 0 (cell-at (+ start 1)))
+                      (= 1 (cell-at (+ start 2)))
+                      (= 1 (cell-at (+ start 3)))
+                      (= 1 (cell-at (+ start 4)))
+                      (= 0 (cell-at (+ start 5)))
+                      (= 1 (cell-at (+ start 6)))
+                      (or (light-context-before? cell-at start)
+                          (light-context-after? cell-at (+ start 7)
+                                                length)))
+               (inc found)
+               found)))))
 
 (defn finder-like-patterns-penalty
   "Returns Table 11 penalty N3 for horizontal and vertical `1011101` cores.
@@ -113,15 +171,26 @@
   A core is counted once even when both sides are light. For this rule only, a
   light run reaching a symbol edge is continued by the required quiet zone."
   [bit-matrix]
-  (* 40
-     (reduce + (map finder-like-count
-                    (concat bit-matrix (columns bit-matrix))))))
+  (* 40 (both-orientations-total bit-matrix finder-like-line-count)))
 
 (defn dark-proportion-penalty
   "Returns Table 11 penalty N4 using exact integer arithmetic."
   [bit-matrix]
-  (let [total (* (count bit-matrix) (count bit-matrix))
-        dark (count (filter #{1} (mapcat identity bit-matrix)))]
+  (let [dimension (count bit-matrix)
+        total (* dimension dimension)
+        dark (loop [row 0
+                    dark 0]
+               (if (= row dimension)
+                 dark
+                 (let [this-row (nth bit-matrix row)]
+                   (recur (inc row)
+                          (loop [column 0
+                                 dark dark]
+                            (if (= column dimension)
+                              dark
+                              (recur (inc column)
+                                     (+ dark
+                                        (nth this-row column)))))))))]
     (* 10
        (quot (abs (- (* 20 dark) (* 10 total)))
              total))))

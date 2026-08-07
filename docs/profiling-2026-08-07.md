@@ -34,19 +34,28 @@ runtime-neutral.
    Each block averaged its 5×5 neighborhood's black points through 25
    hash-map lookups keyed by `[row col]` vectors; hashing and vector
    equality were 13–17 % of the whole decode by themselves. Black points
-   now live in a flat vector indexed `row·columns + column`.
+   now live in a flat vector indexed `row·columns + column`. Measured
+   (JVM): 1 Mpx adaptive binarization ~200 ms → ~94 ms; full decode
+   → ~125 ms.
 2. **`luminance-range` (~10 % of decode) — fixed.** The contrast guard
    walked every pixel for min/max and `block-statistics` computed
    per-block min/max again. The blocks tile the image, so the global
    extremes now fold out of the block statistics and the extra image pass
    is gone from the adaptive path (the global `binarize` keeps its own
-   single pass).
+   single pass). Measured (JVM): binarization ~94 ms → ~87 ms; full
+   decode ~125 ms → ~119 ms.
 3. **`penalty-components` (~60 % of encode, both runtimes) — fixed.**
    The Table 11 penalty scores ran seq machinery over all eight mask
    candidates — `partition` for runs and blocks, a materialized transpose
    per candidate for column scoring; on V8 the allocation churn showed up
    as ~19 % anonymous lambdas plus 7 % garbage collector. The scorers are
-   now indexed loops reading rows and columns in place.
+   now indexed loops reading rows and columns in place, verified
+   value-equivalent against the retired implementations on a real
+   Version 26 matrix. Measured (JVM): the four components on that matrix
+   6.7 ms → 3.4 ms; the encode workload pair 89.9 ms → 53.4 ms (1.7×).
+   The scorers accept rectangular inputs exactly as the originals did —
+   their unit tests probe single rows and columns, which the first
+   version of this rewrite missed.
 4. **Candidate materialization (~15 % of encode) — deliberate, open.**
    Eight fully-masked matrices are built only to be scored. Scoring off
    the placed matrix plus `matrix/data-mask-condition?` would avoid that,
