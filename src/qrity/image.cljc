@@ -181,6 +181,14 @@
                        (if (<= (nth luminance index) threshold) 1 0)))
                    (range (* width height)))})))
 
+(defn invert-bitmap
+  "Reverses a bitmap's polarity for reflectance-reversed symbols.
+
+  A light-on-dark symbol binarizes with its modules' senses flipped;
+  detection then simply runs on the inverted bitmap."
+  [{:keys [bits] :as bitmap}]
+  (assoc bitmap :bits (mapv #(- 1 %) bits)))
+
 (s/def ::bits (s/coll-of #{0 1} :kind vector? :min-count 1))
 (s/def ::width pos-int?)
 (s/def ::height pos-int?)

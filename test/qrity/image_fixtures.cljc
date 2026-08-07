@@ -5,7 +5,8 @@
   rotated, perspective-warped, unevenly lit, and locally damaged — by
   inverse-mapping destination pixels back into a source image with
   nearest-neighbor sampling."
-  (:require [qrity.detect :as detect]))
+  (:require [clojure.string :as string]
+            [qrity.detect :as detect]))
 
 (def dark-luminance 0)
 (def light-luminance 255)
@@ -40,6 +41,21 @@
                       (concat (repeat quiet-pixels empty-row)
                               data-rows
                               (repeat quiet-pixels empty-row)))}))
+
+(defn pbm->luminance-image
+  "Reads a Plain PBM string (as `qrity.render/render-pbm` emits) into a
+  luminance image value; PBM 1 (dark) becomes luminance 0."
+  [pbm]
+  (let [[_ dimensions & raster-lines] (string/split-lines pbm)
+        [width height] (map parse-long (string/split dimensions #" "))]
+    {:width width
+     :height height
+     :luminance (into []
+                      (map (fn [character]
+                             (if (= \1 character)
+                               dark-luminance
+                               light-luminance)))
+                      (apply str raster-lines))}))
 
 (defn transform-image
   "Builds a destination image by pulling source pixels through `inverse-fn`.
@@ -112,6 +128,20 @@
    image width height
    (fn [x y]
      [x (+ y (* amplitude (Math/sin (* Math/PI (/ x width)))))])))
+
+(defn invert-image
+  "Reverses luminance, turning the picture light-on-dark."
+  [{:keys [luminance] :as image}]
+  (assoc image :luminance (mapv #(- 255 %) luminance)))
+
+(defn mirror-image
+  "Flips the picture horizontally, as a symbol seen from behind."
+  [{:keys [width luminance] :as image}]
+  (assoc image
+         :luminance
+         (into []
+               (mapcat (fn [row] (rseq (vec row))))
+               (partition width luminance))))
 
 (defn shade-image
   "Darkens the image toward its left edge with a linear lighting gradient.

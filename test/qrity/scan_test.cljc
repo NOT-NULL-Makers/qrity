@@ -4,6 +4,7 @@
             [qrity.encode :as encode]
             [qrity.image]
             [qrity.image-fixtures :as fixtures]
+            [qrity.render]
             [qrity.scan :as scan]
             #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])))
@@ -131,6 +132,45 @@
     (is (= curved-payload
            (:payload (qrity.decode/decode-matrix
                       (qrity.detect/sample-grid bitmap located)))))))
+
+(deftest decodes-mirrored-and-inverted-pictures
+  (let [{:keys [matrix]} (alphanumeric-symbol)
+        picture (fixtures/matrix->luminance-image matrix 6 4)]
+    (testing "straight pictures report both conditions false"
+      (let [decoded (scan/decode-luminance-image picture)]
+        (is (false? (:mirrored? decoded)))
+        (is (false? (:inverted? decoded)))))
+    (testing "a mirror image decodes transposed"
+      (let [decoded (scan/decode-luminance-image
+                     (fixtures/mirror-image picture))]
+        (is (= alphanumeric-payload (:payload decoded)))
+        (is (true? (:mirrored? decoded)))
+        (is (false? (:inverted? decoded)))))
+    (testing "a light-on-dark symbol decodes with reversed polarity"
+      (let [decoded (scan/decode-luminance-image
+                     (fixtures/invert-image picture))]
+        (is (= alphanumeric-payload (:payload decoded)))
+        (is (true? (:inverted? decoded)))
+        (is (false? (:mirrored? decoded)))))
+    (testing "mirrored, inverted, and rotated at once"
+      (let [decoded (scan/decode-luminance-image
+                     (-> picture
+                         (fixtures/mirror-image)
+                         (fixtures/invert-image)
+                         (fixtures/rotate-image 30)))]
+        (is (= alphanumeric-payload (:payload decoded)))
+        (is (true? (:mirrored? decoded)))
+        (is (true? (:inverted? decoded)))))))
+
+(deftest inverted-rendering-round-trips
+  (let [{:keys [matrix]} (encode/encode-numeric "8675309" :m)
+        picture (fixtures/pbm->luminance-image
+                 (qrity.render/render-pbm matrix 4 4 {:inverted? true}))
+        decoded (scan/decode-luminance-image picture)]
+    (is (= "8675309" (:payload decoded)))
+    (is (true? (:inverted? decoded))
+        "the renderer's light-on-dark raster reads back through the
+        polarity retry")))
 
 (deftest fails-structurally-when-no-symbol-is-present
   (is (= :no-finder-patterns-found

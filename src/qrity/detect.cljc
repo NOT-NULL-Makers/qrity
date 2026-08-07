@@ -647,15 +647,41 @@
         (range dimension)))
      (range dimension))))
 
+(defn- transpose
+  [matrix]
+  (apply mapv vector matrix))
+
 (defn decode-bitmap
   "Locates, samples, and decodes one QR symbol from a binarized bitmap.
 
-  Returns the `qrity.decode/decode-matrix` result with the detection
-  geometry merged in under `:detection`."
+  A mirror-imaged symbol reverses the finder patterns' handedness, so the
+  sampled matrix comes out transposed; when the straight reading fails, the
+  transpose is tried and success is reported as `:mirrored? true`. Returns
+  the `qrity.decode/decode-matrix` result with the detection geometry
+  merged in under `:detection`."
   [bitmap]
-  (let [located (locate-symbol bitmap)]
-    (assoc (decode/decode-matrix (sample-grid bitmap located))
-           :detection (dissoc located :transform))))
+  (let [located (locate-symbol bitmap)
+        sampled (sample-grid bitmap located)
+        detection (dissoc located :transform)
+        straight-failure
+        (try
+          (assoc (decode/decode-matrix sampled) :mirrored? false)
+          (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+            (when-not (ex-data error) (throw error))
+            error))]
+    (if-not (instance? #?(:clj clojure.lang.ExceptionInfo
+                          :cljs ExceptionInfo)
+                       straight-failure)
+      (assoc straight-failure :detection detection)
+      (try
+        (assoc (decode/decode-matrix (transpose sampled))
+               :mirrored? true
+               :detection detection)
+        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+          (when-not (ex-data error) (throw error))
+          ;; The straight reading's failure describes the symbol better
+          ;; than the mirrored retry's.
+          (throw straight-failure))))))
 
 (s/fdef decode-bitmap
   :args (s/cat :bitmap ::image/bitmap)

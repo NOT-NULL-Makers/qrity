@@ -25,6 +25,22 @@
      :height height
      :pixels (mapv vec (partition width pixels))}))
 
+(deftest inverted-rendering-reverses-everything-including-the-quiet-zone
+  (let [matrix [[1 0]
+                [0 1]]
+        straight (:pixels (parse-plain-pbm (render/render-pbm matrix 2 1)))
+        inverted (:pixels (parse-plain-pbm
+                           (render/render-pbm matrix 2 1
+                                              {:inverted? true})))]
+    (is (= inverted
+           (mapv (fn [row] (mapv #(- 1 %) row)) straight))
+        "every pixel reverses, quiet zone included"))
+  (is (= (string/join "\n"
+                      ["██████"
+                       "██  ██"
+                       "██████"])
+         (render/render-unicode [[1]] 1 {:inverted? true}))))
+
 (deftest renders-binary-modules-with-square-terminal-cells
   (is (= (string/join
           "\n"

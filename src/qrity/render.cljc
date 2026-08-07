@@ -54,22 +54,31 @@
   terminals. The default four-module quiet zone is included. The returned string
   uses `\\n` between rows and has no trailing newline.
 
-  The optional second argument is a non-negative quiet-zone width in modules."
+  The optional second argument is a non-negative quiet-zone width in
+  modules. The optional options map supports `:inverted? true` for a
+  Clause 6.3.1 reflectance-reversed (light-on-dark) rendering; reversal
+  covers the quiet zone too — a symbol whose quiet zone keeps the straight
+  polarity is valid in neither reading."
   ([matrix]
    (render-unicode matrix default-quiet-zone))
   ([matrix quiet-zone]
+   (render-unicode matrix quiet-zone {}))
+  ([matrix quiet-zone {:keys [inverted?]}]
    (when-not (binary-square-matrix? matrix)
      (invalid-input! :unicode :invalid-matrix matrix))
    (when-not (nat-int? quiet-zone)
      (invalid-input! :unicode :invalid-quiet-zone quiet-zone))
-   (let [padding (apply str (repeat quiet-zone light-module))
+   (let [[dark-cell light-cell] (if inverted?
+                                  [light-module dark-module]
+                                  [dark-module light-module])
+         padding (apply str (repeat quiet-zone light-cell))
          rendered-width (+ (count matrix) (* 2 quiet-zone))
-         empty-row (apply str (repeat rendered-width light-module))
+         empty-row (apply str (repeat rendered-width light-cell))
          data-rows
          (map (fn [row]
                 (str padding
                      (apply str
-                            (map #(if (= 1 %) dark-module light-module)
+                            (map #(if (= 1 %) dark-cell light-cell)
                                  row))
                      padding))
               matrix)]
@@ -79,10 +88,16 @@
               data-rows
               (repeat quiet-zone empty-row))))))
 
+(s/def ::inverted? boolean?)
+(s/def ::render-options (s/keys :opt-un [::inverted?]))
+
 (s/fdef render-unicode
   :args (s/or :default (s/cat :matrix ::binary-square-matrix)
               :configured (s/cat :matrix ::binary-square-matrix
-                                 :quiet-zone ::quiet-zone))
+                                 :quiet-zone ::quiet-zone)
+              :optioned (s/cat :matrix ::binary-square-matrix
+                               :quiet-zone ::quiet-zone
+                               :options ::render-options))
   :ret string?)
 
 (defn render-pbm
@@ -93,30 +108,39 @@
   The default is scale 8 with the required four-module QR Code quiet zone.
 
   The raster is row-major, wrapped at 70 ASCII characters, separated with `\\n`,
-  and terminated by a newline. File I/O remains the caller's responsibility."
+  and terminated by a newline. File I/O remains the caller's responsibility.
+
+  The optional options map supports `:inverted? true` for a Clause 6.3.1
+  reflectance-reversed (light-on-dark) raster; reversal covers the quiet
+  zone too."
   ([matrix]
    (render-pbm matrix default-pixel-scale default-quiet-zone))
   ([matrix pixel-scale]
    (render-pbm matrix pixel-scale default-quiet-zone))
   ([matrix pixel-scale quiet-zone]
+   (render-pbm matrix pixel-scale quiet-zone {}))
+  ([matrix pixel-scale quiet-zone {:keys [inverted?]}]
    (when-not (binary-square-matrix? matrix)
      (invalid-input! :pbm :invalid-matrix matrix))
    (when-not (pos-int? pixel-scale)
      (invalid-input! :pbm :invalid-pixel-scale pixel-scale))
    (when-not (nat-int? quiet-zone)
      (invalid-input! :pbm :invalid-quiet-zone quiet-zone))
-   (let [quiet-pixels (* quiet-zone pixel-scale)
+   (let [quiet-pixel (if inverted? 1 0)
+         module-pixel (fn [module]
+                        (if inverted? (- 1 module) module))
+         quiet-pixels (* quiet-zone pixel-scale)
          pixel-count (* (+ (count matrix) (* 2 quiet-zone))
                         pixel-scale)
-         empty-row (repeat pixel-count 0)
+         empty-row (repeat pixel-count quiet-pixel)
          data-rows
          (mapcat
           (fn [row]
             (let [scaled-row
                   (concat
-                   (repeat quiet-pixels 0)
-                   (mapcat #(repeat pixel-scale %) row)
-                   (repeat quiet-pixels 0))]
+                   (repeat quiet-pixels quiet-pixel)
+                   (mapcat #(repeat pixel-scale (module-pixel %)) row)
+                   (repeat quiet-pixels quiet-pixel))]
               (repeat pixel-scale scaled-row)))
           matrix)
          raster
@@ -141,5 +165,10 @@
               :configured
               (s/cat :matrix ::binary-square-matrix
                      :pixel-scale ::pixel-scale
-                     :quiet-zone ::quiet-zone))
+                     :quiet-zone ::quiet-zone)
+              :optioned
+              (s/cat :matrix ::binary-square-matrix
+                     :pixel-scale ::pixel-scale
+                     :quiet-zone ::quiet-zone
+                     :options ::render-options))
   :ret string?)
