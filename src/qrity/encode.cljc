@@ -1,4 +1,9 @@
 (ns qrity.encode
+  "Pure end-to-end symbol generation and the fixed Version 1-M walkthrough.
+
+  The staged Clause 7.1 pipeline preserves every intermediate value for
+  inspection; the provisional generalized `encode-*` functions compose the
+  shared construction tail with automatic version and mask selection."
   (:require [clojure.spec.alpha :as s]
             [qrity.bits :as bits]
             [qrity.mask :as mask]

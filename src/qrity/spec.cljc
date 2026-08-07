@@ -1,4 +1,5 @@
 (ns qrity.spec
+  "Executable specs and stage-state predicates for the fixed V1-M pipeline."
   (:require [clojure.spec.alpha :as s]
             [qrity.bits :as bits]
             [qrity.matrix :as matrix]

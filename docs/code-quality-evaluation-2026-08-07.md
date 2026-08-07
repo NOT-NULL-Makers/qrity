@@ -3,7 +3,11 @@
 > **Status update (same day):** F1 is addressed by gating canonical
 > re-validation behind `qrity.validation/*canonical-checks?*` and memoizing
 > per-version templates (commit `722014d`); F2 is fixed (`7160c62`); F3 is
-> fixed (`82211c7`). F4–F6 remain open.
+> fixed (`82211c7`); F4 is fixed (`bd7d7a5`); F5 is fixed via
+> `validation/rejected` (`b13295f`); the F6 code items are fixed in the
+> commit recording this note. Still open from F6: the eventual `matrix.cljc`
+> split, `render-pbm` allocation behavior, spec `:args` shapes, and the
+> nested-repo housekeeping — all deliberately deferred.
 
 Scope: all 11 source namespaces under `src/qrity/` (~4,100 lines), the test suite
 (~5,150 lines, 22 files), `deps.edn`, `README.md`, and the verification scripts.

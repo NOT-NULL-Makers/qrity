@@ -1,4 +1,5 @@
 (ns qrity.matrix
+  "Pure function-pattern templates, placement, masking, and metadata writing."
   (:require [clojure.spec.alpha :as s]
             [qrity.metadata :as metadata]
             [qrity.parameters :as parameters]
@@ -320,8 +321,6 @@
          :version version
          :expected-count (count coordinates)
          :actual-count (count message-bits)
-         :coordinate-count (count coordinates)
-         :bit-count (count message-bits)
          :clause "7.7.3"})))
     (let [remainder-bit-count
           (:remainder-bit-count

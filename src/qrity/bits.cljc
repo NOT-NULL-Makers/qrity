@@ -1,4 +1,5 @@
 (ns qrity.bits
+  "Pure bit, codeword, and Clause 7.4 payload-packing primitives."
   (:require [clojure.spec.alpha :as s]))
 
 ;; ISO/IEC 18004:2015, Clause 7.4.4, Table 5. Position is character value.
