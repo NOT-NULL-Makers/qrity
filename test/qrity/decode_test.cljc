@@ -2,6 +2,7 @@
   (:require [qrity.decode :as decode]
             [qrity.encode :as encode]
             [qrity.matrix :as matrix]
+            [qrity.metadata :as metadata]
             #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])))
 
@@ -63,16 +64,58 @@
     (is (= payload (:payload decoded)))
     (is (= (:version symbol-value) (:version decoded)))))
 
+(defn- flip-module
+  [bit-matrix coordinate]
+  (update-in bit-matrix coordinate #(- 1 %)))
+
+(deftest cross-checks-the-version-information-blocks
+  (let [payload (apply str (take 220 (cycle "0123456789")))
+        {:keys [matrix version]} (encode/encode-numeric payload :h)
+        {:keys [top-right bottom-left]}
+        (matrix/version-information-placement-coordinates (count matrix))]
+    (is (<= 7 version))
+    (testing "intact blocks confirm the dimension's version"
+      (is (= {:status :confirmed :hamming-distance 0}
+             (:version-information (decode/decode-matrix matrix)))))
+    (testing "damage within the BCH tolerance still confirms"
+      (let [damaged (reduce flip-module matrix (take 3 top-right))
+            decoded (decode/decode-matrix damaged)]
+        (is (= :confirmed (get-in decoded [:version-information :status])))
+        (is (= payload (:payload decoded)))))
+    (testing "blocks declaring a different version are a contradiction"
+      (let [other-word (vec (rseq (metadata/version-information-bits
+                                   (inc version))))
+            contradicted (reduce (fn [current [coordinate bit]]
+                                   (assoc-in current coordinate bit))
+                                 matrix
+                                 (map vector
+                                      (concat top-right bottom-left)
+                                      (concat other-word other-word)))]
+        (is (= :version-information-mismatch
+               (:qrity/error
+                (exception-data
+                 #(decode/decode-matrix contradicted)))))))
+    (testing "blocks damaged beyond recognition degrade to :unreadable"
+      ;; All-light blocks are distance >= 8 from every valid word, since
+      ;; BCH(18,6) codewords all have weight of at least eight.
+      (let [wrecked (reduce (fn [current coordinate]
+                              (assoc-in current coordinate 0))
+                            matrix
+                            (concat top-right bottom-left))
+            decoded (decode/decode-matrix wrecked)]
+        (is (= {:status :unreadable} (:version-information decoded)))
+        (is (= payload (:payload decoded)))))))
+
+(deftest small-symbols-carry-no-version-information
+  (is (nil? (:version-information
+             (round-trip (encode/encode-numeric "8675309" :m))))))
+
 (deftest decodes-every-error-correction-level
   (doseq [level [:l :m :q :h]]
     (testing (str "level " level)
       (let [decoded (round-trip (encode/encode-numeric "31415926535" level))]
         (is (= "31415926535" (:payload decoded)))
         (is (= level (:error-correction-level decoded)))))))
-
-(defn- flip-module
-  [bit-matrix coordinate]
-  (update-in bit-matrix coordinate #(- 1 %)))
 
 (deftest tolerates-correctable-format-information-damage
   (let [{:keys [matrix]} (encode/encode-numeric "8675309" :m)

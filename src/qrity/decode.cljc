@@ -116,6 +116,63 @@
                   :hamming-distance])))
 
 ;; ---------------------------------------------------------------------------
+;; Version information (Clause 7.10)
+
+(def ^:private version-information-candidates
+  "All 34 valid version-information words for Versions 7 through 40."
+  (mapv (fn [version]
+          {:version version
+           :version-bits (metadata/version-information-bits version)})
+        (range 7 41)))
+
+(defn- nearest-version-candidate
+  [version-bits]
+  (apply min-key
+         :hamming-distance
+         (map #(assoc % :hamming-distance
+                      (hamming-distance version-bits (:version-bits %)))
+              version-information-candidates)))
+
+(defn read-version-information
+  "Cross-checks the 18-bit version blocks against the dimension's version.
+
+  Each copy is matched against the 34 valid words — BCH(18,6) codewords are
+  pairwise at distance eight or more, so up to three damaged modules per
+  copy still identify one version unambiguously. A readable word that names
+  a *different* version than the matrix dimension is a structural
+  contradiction and fails; blocks damaged beyond recognition are reported
+  as `:unreadable` rather than failing, since the message may still be
+  recoverable. Versions 1 through 6 carry no version information and
+  return nil."
+  [bit-matrix dimension-version]
+  (when (<= 7 dimension-version)
+    (let [{:keys [top-right bottom-left]}
+          (matrix/version-information-placement-coordinates
+           (count bit-matrix))
+          read-copy (fn [coordinates]
+                      ;; Coordinate k carries bit 17-k; reverse to MSB-first.
+                      (nearest-version-candidate
+                       (vec (rseq (read-modules bit-matrix coordinates)))))
+          chosen (min-key :hamming-distance
+                          (read-copy top-right)
+                          (read-copy bottom-left))]
+      (cond
+        (> (:hamming-distance chosen) 3)
+        {:status :unreadable}
+
+        (not= (:version chosen) dimension-version)
+        (fail! :version-information-mismatch
+               "The version-information blocks contradict the symbol dimension"
+               {:dimension-version dimension-version
+                :declared-version (:version chosen)
+                :hamming-distance (:hamming-distance chosen)}
+               "7.10")
+
+        :else
+        {:status :confirmed
+         :hamming-distance (:hamming-distance chosen)}))))
+
+;; ---------------------------------------------------------------------------
 ;; Unmasking and codeword extraction (Clauses 7.7.3 and 7.8)
 
 (defn- construction-matrix
@@ -595,6 +652,7 @@
            {:matrix bit-matrix}
            "6.3.1"))
   (let [version (version-for-dimension (count bit-matrix))
+        version-information (read-version-information bit-matrix version)
         {:keys [error-correction-level mask-reference hamming-distance]}
         (read-format-information bit-matrix)
         profile (parameters/ordinary-qr-parameters
@@ -628,7 +686,9 @@
                          parity-count
                          data-codeword-count))
         data-codewords (into [] (mapcat identity) corrected-blocks)]
-    (merge {:version version
+    (merge (when version-information
+             {:version-information version-information})
+           {:version version
             :error-correction-level error-correction-level
             :mask-reference mask-reference
             :format-hamming-distance hamming-distance
@@ -648,6 +708,9 @@
 (s/def ::payload (s/and string? seq))
 (s/def ::segments (s/coll-of map? :kind vector? :min-count 1))
 (s/def ::eci-designator (s/int-in 0 1000000))
+(s/def ::version-information
+  (s/keys :req-un [::status] :opt-un [::format-hamming-distance]))
+(s/def ::status #{:confirmed :unreadable})
 (s/def ::corrected-error-count nat-int?)
 (s/def ::corrected-erasure-count nat-int?)
 (s/def ::reconstructed-matrix ::render/binary-square-matrix)
@@ -664,7 +727,7 @@
                    ::character-count
                    ::payload
                    ::segments]
-          :opt-un [::bits/octets ::eci-designator]))
+          :opt-un [::bits/octets ::eci-designator ::version-information]))
 
 (s/def ::decodable-matrix decodable-matrix?)
 
