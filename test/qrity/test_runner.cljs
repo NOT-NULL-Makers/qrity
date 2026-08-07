@@ -5,8 +5,10 @@
             [qrity.alphanumeric-test]
             [qrity.byte-encode-test]
             [qrity.byte-segment-test]
+            [qrity.decode-test]
             [qrity.encode-test]
             [qrity.generalized-encode-test]
+            [qrity.image-test]
             [qrity.mask-test]
             [qrity.mask-selection-test]
             [qrity.matrix-test]
@@ -35,8 +37,10 @@
                   'qrity.alphanumeric-test
                   'qrity.byte-encode-test
                   'qrity.byte-segment-test
+                  'qrity.decode-test
                   'qrity.encode-test
                   'qrity.generalized-encode-test
+                  'qrity.image-test
                   'qrity.mask-test
                   'qrity.mask-selection-test
                   'qrity.matrix-test
