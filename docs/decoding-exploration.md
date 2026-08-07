@@ -199,6 +199,21 @@ applied.
 - The inspector (`qrity.inspect`): the census accounts for every module of the
   symbol; reassembling the data bit stream from per-module explanations
   reproduces the planner's bit vector bit for bit.
+- Differential decoding (2026-08-07, black-box per the clean-room protocol;
+  zbarimg 0.23.x, OpenCV 4.10.0, jsQR 1.4.0 via `scripts/jsqr_decode.mjs`
+  with pngjs 7.0.0): all three foreign decoders also read the full
+  50-picture mangling corpus. On a discriminating set — mirror image,
+  reflectance reversal, sinusoidal curvature, multi-segment byte+numeric —
+  this decoder read 5/5; jsQR 4/5 (failed curvature); zbar 4/5 (failed
+  reversal, read curvature); OpenCV 3/5 (failed curvature and reversal).
+  Speed on a ~1 Mpx clean picture: jsQR ~102 ms, this decoder ~119 ms on
+  the JVM and ~738 ms as compiled ClojureScript on the same V8 — the
+  hand-tuned typed-array JavaScript is ~7× faster than our compiled
+  ClojureScript on its home runtime, a gap to remember before any browser
+  performance claim. nimiq/qr-scanner remains classified from landing
+  metadata only (a browser camera-scanner around a modified jsQR fork,
+  needing canvas and worker APIs); its empirical run awaits a browser
+  harness.
 - JVM boundary round trip: matrix → `BufferedImage` → PNG bytes → `ImageIO` →
   luminance value → decode.
 - Negative evidence: damage beyond correction capacity, unreadable format
