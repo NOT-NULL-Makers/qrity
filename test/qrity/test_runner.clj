@@ -10,6 +10,7 @@
             [qrity.generalized-encode-test]
             [qrity.image-io-test]
             [qrity.image-test]
+            [qrity.inspect-test]
             [qrity.mask-test]
             [qrity.mask-selection-test]
             [qrity.matrix-test]
@@ -37,6 +38,7 @@
                         'qrity.generalized-encode-test
                         'qrity.image-io-test
                         'qrity.image-test
+                        'qrity.inspect-test
                         'qrity.mask-test
                         'qrity.mask-selection-test
                         'qrity.matrix-test

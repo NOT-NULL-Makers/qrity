@@ -42,8 +42,11 @@ Explicit non-goals, now and likely permanently:
 - **Re-implementing image or video codecs.** PNG/JPEG decoding is a solved
   platform capability with no first-principles value for this project. The
   first-principles claim starts at the luminance plane, not at the DEFLATE stream.
-- Micro QR, Kanji mode, ECI headers, Structured Append, mirrored symbols — all
-  outside the encoder's subset too.
+- Micro QR, Kanji mode, Structured Append, mirrored symbols — all outside the
+  encoder's subset too. ECI is supported only for the two designators the
+  encoder emits — 000003 (default ISO/IEC 8859-1) and 000026 (UTF-8, via
+  `qrity.text`'s pure transcoder); other designators are refused, octets
+  intact in the error.
 
 ## First-principles pipeline
 
@@ -54,12 +57,12 @@ Decoding decomposes into eight stages. The first is platform; the rest are pure.
 |---|---|---|---|
 | 1 | Image acquisition | PNG/JPEG bytes → luminance image value | `qrity.image-io` (JVM); browser/Node adapters documented only |
 | 2 | Binarization | luminance image → bitmap (1 = dark) | `qrity.image/binarize-adaptive`, block-local black points (ZXing-hybrid shape); global midpoint retained for small/even rasters |
-| 3 | Symbol location | bitmap → finder centers, module size, dimension, transform | `qrity.detect`: 1:1:3:1:1 run scanning with cross-checks, geometric ordering, axis-run module measurement, alignment-pattern refinement, perspective transform |
-| 4 | Grid sampling | bitmap + transform → 0/1 module matrix | `qrity.detect/sample-grid`, module-center sampling through the transform |
+| 3 | Symbol location | bitmap → finder centers, module size, dimension, transforms | `qrity.detect`: 1:1:3:1:1 run scanning with cross-checks, geometric ordering, axis-run module measurement, full alignment-grid location, perspective transforms |
+| 4 | Grid sampling | bitmap + transforms → module matrix (nil = unknown) | `qrity.detect/sample-grid`: per-cell transforms over the alignment grid where the version has one, global transform otherwise; out-of-picture centers sample as unknown |
 | 5 | Format/version recovery | matrix → level, mask (and version from dimension) | `qrity.decode`, exhaustive match over the encoder's 32 format words, ≤ 3-bit tolerance |
-| 6 | Unmask and extract | matrix + mask → message codewords | `qrity.decode`, reusing `qrity.matrix` templates, traversal, and masks |
-| 7 | Error correction | codewords → corrected data codewords | `qrity.reed-solomon/correct-codewords`: syndromes, Berlekamp–Massey, Chien search, Forney; up to ⌊parity/2⌋ errors per block |
-| 8 | Bit-stream parsing | data codewords → mode, count, payload | `qrity.decode`, strict single-segment with re-encode verification |
+| 6 | Unmask and extract | matrix + mask → message codewords + erasures | `qrity.decode`, reusing `qrity.matrix` templates, traversal, and masks; unknown modules become codeword erasures |
+| 7 | Error correction | codewords → corrected data codewords | `qrity.reed-solomon/correct-codewords`: syndromes, erasure locator, Sugiyama's Euclidean key-equation solver, combined-locator root search, Forney; per block, 2·errors + erasures ≤ parity |
+| 8 | Bit-stream parsing | data codewords → ECI state, segments, payload | `qrity.decode`, multi-segment with ECI 000026/000003; the end-of-message test *is* the re-encode padding check |
 
 Three location details carry most of the geometric robustness and deserve
 naming. *Rotation needs no separate pass*: any straight line through the center
@@ -169,8 +172,19 @@ applied.
   perspective-warped picture; a strong lighting gradient (where the global
   threshold demonstrably misreads hundreds of pixels and the adaptive
   binarizer misreads none); a blotted symbol repaired through error correction
-  with `:reconstructed-matrix` equal to the pristine encoder output; and a
-  combined rotated, shaded, blotted picture.
+  with `:reconstructed-matrix` equal to the pristine encoder output; a
+  combined rotated, shaded, blotted picture; and a curved (sinusoidally bent)
+  Version 10 picture where the global homography alone misreads ~900 modules
+  and the alignment grid misreads none — both outcomes asserted.
+- Erasures: pure erasures up to the full parity degree; mixed damage at the
+  exact 2·errors + erasures = parity boundary; scattered unknown modules wider
+  than the plain error capacity decoded and reconstructed.
+- Segmentation and ECI: planner round trips over mixed payloads (byte+numeric
+  splits, UTF-8 with ECI 000026, emoji), planned bits never exceeding naive
+  all-Byte encoding, and exact minimal version selection.
+- The inspector (`qrity.inspect`): the census accounts for every module of the
+  symbol; reassembling the data bit stream from per-module explanations
+  reproduces the planner's bit vector bit for bit.
 - JVM boundary round trip: matrix → `BufferedImage` → PNG bytes → `ImageIO` →
   luminance value → decode.
 - Negative evidence: damage beyond correction capacity, unreadable format
@@ -187,12 +201,12 @@ with defaults:
 
 | Decision gate | Current status | Evidence needed | Close before |
 |---|---|---|---|
-| Reed–Solomon correction algorithm | Berlekamp–Massey with Chien search and Forney decided; erasure support (knowing *where* damage is doubles capacity) remains open | Erasure-location evidence from the sampling stage; worked ISO examples | Claiming the full theoretical damage tolerance |
+| Reed–Solomon correction algorithm | Revised: Sugiyama's Euclidean solver replaced Berlekamp–Massey when erasures arrived — one stopping rule covers errors and erasures uniformly. Erasures flow in from unknown (nil) modules | Worked ISO examples; erasure sources beyond sampling (caller-declared covered regions are supported, detector-declared ones are not yet inferred) | Claiming the full theoretical damage tolerance on photographs |
 | Binarization for photographs | Block-local black points (ZXing-hybrid shape) decided; evidenced on synthetic gradients only | Corpus of real photographs — sensor noise, blur, specular highlights | Any real-photograph robustness claim |
-| Finder detection and perspective sampling | Run scanning, cross-checks, axis-run module measurement, single-alignment perspective decided; evidenced on synthetic distortions | Real-photo corpus; comparison with reference decoders; multi-alignment sampling for high versions under strong warp | Any real-photograph robustness claim |
+| Finder detection and perspective sampling | Run scanning, cross-checks, axis-run module measurement, and per-cell sampling over the full located alignment grid decided; evidenced on synthetic distortions including non-projective curvature | Real-photo corpus; comparison with reference decoders | Any real-photograph robustness claim |
 | Version cross-check via the 18-bit version-information blocks | Version still derived from measured dimension only | Damaged-symbol corpus where dimension estimation misleads | Error-corrected decoding of Versions ≥ 7 under distortion |
 | Multiple symbols in one picture | Single-symbol assumption; extra finder candidates are pruned, not grouped | Multi-symbol grouping design and corpus | Claiming multi-symbol support |
-| Tolerant multi-segment parsing vs strict re-encode verification | Strict single-segment decided for the exploration | Interoperability evidence from symbols produced by other encoders | Decoding third-party symbols |
+| Message-structure strictness | Multi-segment and ECI 000003/000026 parsing decided; the end-of-message test is the exact re-encode padding check, so non-canonical padding is still refused | Interoperability evidence from symbols produced by other encoders (which may pad or terminate differently) | Decoding third-party symbols |
 | Luminance plane representation (plain vector vs packed platform arrays behind the same seam) | Plain vector decided for the exploration | Profiling on realistic image sizes in both runtimes | Optimizing; the seam itself should hold |
 | Browser/Node image acquisition adapters | JVM `ImageIO` only; Canvas `ImageData` sketched | A ClojureScript host with image access in CI | Claiming ClojureScript picture decoding |
 | Mirror-image and light-on-dark symbols | Out of scope | Standard Clause 6 review and corpus evidence | Any robustness claim |
