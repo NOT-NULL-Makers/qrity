@@ -4,31 +4,33 @@
   This is deliberately the only place decoding touches a platform image API:
   `javax.imageio.ImageIO` reads PNG, JPEG, BMP, and GIF into pixels, and this
   namespace converts them to the `qrity.image` luminance image value. A
-  browser adapter would fill the same value from Canvas `ImageData`; neither
-  side of that seam needs to know about the other's host."
-  (:require [clojure.java.io :as io])
+  browser adapter (`qrity.image-canvas`) fills the same value from Canvas
+  `ImageData`; neither side of that seam needs to know about the other's
+  host."
+  (:require [clojure.java.io :as io]
+            [qrity.plane :as plane])
   (:import (java.awt.image BufferedImage)
            (javax.imageio ImageIO)))
 
-(defn- pixel-luminance
-  "ITU-R BT.601 integer luma approximation of one packed ARGB pixel."
-  [argb]
-  (let [red (bit-and (bit-shift-right argb 16) 0xFF)
-        green (bit-and (bit-shift-right argb 8) 0xFF)
-        blue (bit-and argb 0xFF)]
-    (quot (+ (* 299 red) (* 587 green) (* 114 blue)) 1000)))
-
 (defn buffered-image->luminance-image
-  "Converts a `BufferedImage` to a pure luminance image value."
+  "Converts a `BufferedImage` to a pure luminance image value.
+
+  Grayscale conversion uses ITU-R BT.601 integer weights on a bulk pixel
+  grab, filling the packed luminance plane directly."
   [^BufferedImage image]
   (let [width (.getWidth image)
-        height (.getHeight image)]
-    {:width width
-     :height height
-     :luminance (into []
-                      (for [y (range height)
-                            x (range width)]
-                        (pixel-luminance (.getRGB image x y))))}))
+        height (.getHeight image)
+        ^ints argb-pixels (.getRGB image 0 0 width height nil 0 width)
+        luminance (plane/blank (* width height))]
+    (dotimes [index (* width height)]
+      (let [argb (aget argb-pixels index)
+            red (bit-and (bit-shift-right argb 16) 0xFF)
+            green (bit-and (bit-shift-right argb 8) 0xFF)
+            blue (bit-and argb 0xFF)]
+        (plane/put! luminance index
+                    (quot (+ (* 299 red) (* 587 green) (* 114 blue))
+                          1000))))
+    {:width width :height height :luminance luminance}))
 
 (defn read-luminance-image
   "Reads an encoded image into a pure luminance image value.

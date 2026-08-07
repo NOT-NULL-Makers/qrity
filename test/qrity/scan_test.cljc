@@ -188,8 +188,7 @@
          (:qrity/error
           (exception-data
            #(scan/decode-luminance-image
-             {:width 50
-              :height 50
-              :luminance (vec
-                          (map (fn [index] (if (odd? index) 0 255))
-                               (range 2500)))}))))))
+             (image/luminance-image
+              50 50
+              (map (fn [index] (if (odd? index) 0 255))
+                   (range 2500)))))))))

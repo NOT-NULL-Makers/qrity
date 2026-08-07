@@ -1491,7 +1491,7 @@ them. Each gate must close before the named commitment:
 
 | Decision gate | Current status | Evidence needed | Close before |
 |---|---|---|---|
-| Meaning of “pure” for local transients or mutation | Immutable vectors decided for the initial slice; semantic purity required | Profiling, cross-runtime experiment, and review of observable behavior | Introducing transient-backed or locally mutable optimization |
+| Meaning of “pure” for local transients or mutation | Decided for pixel planes (2026-08-07): construction-local mutation of packed octet arrays behind `qrity.plane` accessors, immutable once carried by an image value — adopted on measured evidence (~12× memory, ~2× pipeline time; see the luminance gate in `docs/decoding-exploration.md`). Semantic purity still required; symbol matrices and codeword vectors remain immutable persistent vectors | Revisit only with new profiling evidence for a further structure | Extending local mutation beyond the pixel planes |
 | Shared `.cljc` boundaries | Preferred hypothesis | Bit/byte/arithmetic parity probes in both runtimes; clarity review | Project skeleton becomes stable |
 | Logical matrix vs required bundled renderers | Open; matrix is authoritative | Consumer needs and Clause 9 obligation map | Stabilizing the public API |
 | Public API and error-return convention | Open | Domain model, invalid-input taxonomy, REPL ergonomics | First public namespace |

@@ -2,14 +2,28 @@
   "Synthetic luminance rasters for exercising the decoding image front-end.
 
   Besides the clean rasterizer, this builds deliberately messy pictures —
-  rotated, perspective-warped, unevenly lit, and locally damaged — by
-  inverse-mapping destination pixels back into a source image with
-  nearest-neighbor sampling."
+  rotated, perspective-warped, curved, unevenly lit, contrast-compressed,
+  mirrored, inverted, and locally damaged — by inverse-mapping destination
+  pixels back into a source image with nearest-neighbor sampling."
   (:require [clojure.string :as string]
-            [qrity.detect :as detect]))
+            [qrity.detect :as detect]
+            [qrity.image :as image]
+            [qrity.plane :as plane]))
 
 (def dark-luminance 0)
 (def light-luminance 255)
+
+(defn- luminance-at
+  [{:keys [width luminance]} x y]
+  (plane/value-at luminance (+ (* y width) x)))
+
+(defn- remap-luminance
+  "A same-shape image whose pixel at index i is (value-fn i octet)."
+  [{:keys [width height luminance]} value-fn]
+  (image/luminance-image
+   width height
+   (map (fn [index] (value-fn index (plane/value-at luminance index)))
+        (range (* width height)))))
 
 (defn matrix->luminance-image
   "Rasterizes a 0/1 module matrix into a clean luminance image value.
@@ -34,13 +48,12 @@
                   (repeat quiet-pixels light-luminance))]
              (repeat pixel-scale scaled-row)))
          matrix)]
-    {:width pixel-count
-     :height pixel-count
-     :luminance (into []
-                      (mapcat identity)
-                      (concat (repeat quiet-pixels empty-row)
-                              data-rows
-                              (repeat quiet-pixels empty-row)))}))
+    (image/luminance-image
+     pixel-count pixel-count
+     (apply concat
+            (concat (repeat quiet-pixels empty-row)
+                    data-rows
+                    (repeat quiet-pixels empty-row))))))
 
 (defn pbm->luminance-image
   "Reads a Plain PBM string (as `qrity.render/render-pbm` emits) into a
@@ -48,33 +61,28 @@
   [pbm]
   (let [[_ dimensions & raster-lines] (string/split-lines pbm)
         [width height] (map parse-long (string/split dimensions #" "))]
-    {:width width
-     :height height
-     :luminance (into []
-                      (map (fn [character]
-                             (if (= \1 character)
-                               dark-luminance
-                               light-luminance)))
-                      (apply str raster-lines))}))
+    (image/luminance-image
+     width height
+     (map (fn [character]
+            (if (= \1 character) dark-luminance light-luminance))
+          (apply str raster-lines)))))
 
 (defn transform-image
   "Builds a destination image by pulling source pixels through `inverse-fn`.
 
   `inverse-fn` maps a destination [x y] (pixel centers) to source
   coordinates; destinations falling outside the source stay light."
-  [{:keys [width height luminance]} new-width new-height inverse-fn]
-  {:width new-width
-   :height new-height
-   :luminance
-   (into []
-         (for [y (range new-height)
-               x (range new-width)]
-           (let [[source-x source-y] (inverse-fn (+ x 0.5) (+ y 0.5))
-                 pixel-x (int (Math/floor source-x))
-                 pixel-y (int (Math/floor source-y))]
-             (if (and (< -1 pixel-x width) (< -1 pixel-y height))
-               (nth luminance (+ (* pixel-y width) pixel-x))
-               light-luminance))))})
+  [{:keys [width height] :as source} new-width new-height inverse-fn]
+  (image/luminance-image
+   new-width new-height
+   (for [y (range new-height)
+         x (range new-width)]
+     (let [[source-x source-y] (inverse-fn (+ x 0.5) (+ y 0.5))
+           pixel-x (int (Math/floor source-x))
+           pixel-y (int (Math/floor source-y))]
+       (if (and (< -1 pixel-x width) (< -1 pixel-y height))
+         (luminance-at source pixel-x pixel-y)
+         light-luminance)))))
 
 (defn rotate-image
   "Rotates an image by `degrees` around its center onto a fitted canvas."
@@ -131,58 +139,50 @@
 
 (defn invert-image
   "Reverses luminance, turning the picture light-on-dark."
-  [{:keys [luminance] :as image}]
-  (assoc image :luminance (mapv #(- 255 %) luminance)))
+  [image]
+  (remap-luminance image (fn [_ value] (- 255 value))))
 
 (defn mirror-image
   "Flips the picture horizontally, as a symbol seen from behind."
-  [{:keys [width luminance] :as image}]
-  (assoc image
-         :luminance
-         (into []
-               (mapcat (fn [row] (rseq (vec row))))
-               (partition width luminance))))
+  [{:keys [width] :as image}]
+  (remap-luminance
+   image
+   (fn [index _]
+     (let [y (quot index width)
+           x (rem index width)]
+       (luminance-at image (- width 1 x) y)))))
 
 (defn compress-contrast
   "Squeezes the luminance range into [floor, ceiling].
 
   Models washed-out prints and low-contrast screens, where absolute
   black-point heuristics (half of \"light\" landing below \"dark\") break."
-  [{:keys [luminance] :as image} floor ceiling]
-  (assoc image
-         :luminance
-         (mapv #(+ floor (quot (* % (- ceiling floor)) 255))
-               luminance)))
+  [image floor ceiling]
+  (remap-luminance
+   image
+   (fn [_ value] (+ floor (quot (* value (- ceiling floor)) 255)))))
 
 (defn shade-image
   "Darkens the image toward its left edge with a linear lighting gradient.
 
   Strong enough that a single global threshold misreads one side, which is
   exactly what adaptive binarization exists to survive."
-  [{:keys [width height luminance]}]
-  {:width width
-   :height height
-   :luminance
-   (into []
-         (map-indexed
-          (fn [index value]
-            (let [x (rem index width)
-                  factor (+ 0.3 (/ (* 0.7 x) width))]
-              (int (Math/floor (* value factor))))))
-         luminance)})
+  [{:keys [width] :as image}]
+  (remap-luminance
+   image
+   (fn [index value]
+     (let [x (rem index width)
+           factor (+ 0.3 (/ (* 0.7 x) width))]
+       (int (Math/floor (* value factor)))))))
 
 (defn blot-image
   "Erases a disc of pixels to light, simulating local symbol damage."
-  [{:keys [width height luminance]} center-x center-y radius]
-  {:width width
-   :height height
-   :luminance
-   (into []
-         (map-indexed
-          (fn [index value]
-            (let [dx (- (+ 0.5 (rem index width)) center-x)
-                  dy (- (+ 0.5 (quot index width)) center-y)]
-              (if (<= (+ (* dx dx) (* dy dy)) (* radius radius))
-                light-luminance
-                value))))
-         luminance)})
+  [{:keys [width] :as image} center-x center-y radius]
+  (remap-luminance
+   image
+   (fn [index value]
+     (let [dx (- (+ 0.5 (rem index width)) center-x)
+           dy (- (+ 0.5 (quot index width)) center-y)]
+       (if (<= (+ (* dx dx) (* dy dy)) (* radius radius))
+         light-luminance
+         value)))))

@@ -19,7 +19,8 @@
   (:require [clojure.spec.alpha :as s]
             [qrity.decode :as decode]
             [qrity.image :as image]
-            [qrity.parameters :as parameters]))
+            [qrity.parameters :as parameters]
+            [qrity.plane :as plane]))
 
 (defn- fail!
   [error message data]
@@ -28,7 +29,7 @@
 
 (defn- pixel
   [{:keys [width bits]} x y]
-  (nth bits (+ (* y width) x)))
+  (plane/value-at bits (+ (* y width) x)))
 
 ;; ---------------------------------------------------------------------------
 ;; Run-ratio matching
