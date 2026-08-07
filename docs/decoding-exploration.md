@@ -207,10 +207,14 @@ applied.
   this decoder read 5/5; jsQR 4/5 (failed curvature); zbar 4/5 (failed
   reversal, read curvature); OpenCV 3/5 (failed curvature and reversal).
   Speed on a ~1 Mpx clean picture: jsQR ~102 ms, this decoder ~119 ms on
-  the JVM and ~738 ms as compiled ClojureScript on the same V8 — the
-  hand-tuned typed-array JavaScript is ~7× faster than our compiled
-  ClojureScript on its home runtime, a gap to remember before any browser
-  performance claim. nimiq/qr-scanner remains classified from landing
+  the JVM, and — corrected same-day — ~175 ms as ClojureScript under
+  `:advanced` compilation on the same V8 (the ~740–860 ms first recorded
+  was a `:simple`-build artifact: var indirection and blocked inlining,
+  useful for readable profiles but never for performance claims; the
+  demonstration site ships `:advanced`). Under `:advanced`, encode also
+  drops ~2.3× (~390 ms → ~172 ms for the workload pair). Net: ~1.7× off
+  the hand-tuned typed-array JavaScript on its home runtime, ~1.5× off
+  our own JVM. nimiq/qr-scanner remains classified from landing
   metadata only (a browser camera-scanner around a modified jsQR fork,
   needing canvas and worker APIs); its empirical run awaits a browser
   harness.

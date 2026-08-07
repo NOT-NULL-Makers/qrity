@@ -7,7 +7,12 @@
 Method: JVM flamegraphs via clj-async-profiler (itimer sampling, warmed
 loops); Node/V8 CPU profiles via `node --cpu-prof` over the ClojureScript
 build (`:simple` optimizations for readable names). V8 is Chrome's engine,
-so the Node profile stands in for the browser minus DOM. Workloads: decode
+so the Node profile stands in for the browser minus DOM. **Caveat learned
+same-day: `:simple` builds are for profile readability only — `:advanced`
+compilation runs the same decode workload ~5× faster (863 ms → 175 ms) and
+encode ~2.3× faster, so absolute ClojureScript performance claims must
+come from `:advanced` builds, while relative hotspot shares from `:simple`
+profiles remain directionally valid (the JVM profile agreed with them).** Workloads: decode
 of a 1 Mpx rendered picture; encode of a mixed text payload plus a
 1500-digit Numeric payload. Artifacts under `target/profile/` (regenerate
 with the commands in the work log; not committed).
