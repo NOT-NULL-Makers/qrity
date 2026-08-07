@@ -3,7 +3,8 @@
   (:require [clojure.spec.alpha :as s]
             [qrity.matrix :as matrix]
             [qrity.message :as message]
-            [qrity.parameters :as parameters]))
+            [qrity.parameters :as parameters]
+            [qrity.validation :as validation]))
 
 (def penalty-keys
   #{:same-color-runs
@@ -178,7 +179,7 @@
    (= (:total-penalty value)
       (reduce + (vals (:penalties value))))))
 
-(defn- require-candidate-input!
+(defn- require-canonical-candidate-input!
   [final-message placement]
   (when-not (message/final-message? final-message)
     (throw
@@ -221,6 +222,11 @@
        :error-correction-level
        (:error-correction-level final-message)
        :clause "7.7.3/7.8.3"}))))
+
+(defn- require-candidate-input!
+  [final-message placement]
+  (when validation/*canonical-checks?*
+    (require-canonical-candidate-input! final-message placement)))
 
 (defn- candidate-source-request?
   [{:keys [final-message placement]}]
@@ -266,7 +272,10 @@
      :total-penalty (reduce + (vals penalties))}))
 
 (defn mask-candidate
-  "Builds and scores one provenance-bound complete-symbol candidate."
+  "Builds and scores one provenance-bound complete-symbol candidate.
+
+  Canonical input re-validation runs only under
+  `qrity.validation/*canonical-checks?*`; the mask-reference check always runs."
   [final-message placement mask-reference]
   (require-candidate-input! final-message placement)
   (when-not (s/valid? ::parameters/mask-reference mask-reference)
@@ -279,7 +288,10 @@
   (build-candidate final-message placement mask-reference))
 
 (defn mask-candidates
-  "Builds all eight complete candidates independently from one placement."
+  "Builds all eight complete candidates independently from one placement.
+
+  Canonical input re-validation runs only under
+  `qrity.validation/*canonical-checks?*`."
   [final-message placement]
   (require-candidate-input! final-message placement)
   (mapv #(build-candidate final-message placement %) (range 8)))
@@ -324,7 +336,8 @@
 
 (defn- require-candidate-set!
   [candidates]
-  (when-not (candidate-set? candidates)
+  (when (and validation/*canonical-checks?*
+             (not (candidate-set? candidates)))
     (throw
      (ex-info
       "Selection requires the ordered candidates for mask references 0 through 7"
@@ -333,7 +346,10 @@
        :clause "7.8.3.1"}))))
 
 (defn minimum-penalty-candidates
-  "Returns every globally minimum-penalty candidate in mask-reference order."
+  "Returns every globally minimum-penalty candidate in mask-reference order.
+
+  Canonical candidate-set re-validation runs only under
+  `qrity.validation/*canonical-checks?*`."
   [candidates]
   (require-candidate-set! candidates)
   (let [minimum (apply min (map :total-penalty candidates))]

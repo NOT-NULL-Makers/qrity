@@ -3,6 +3,7 @@
             [qrity.matrix :as matrix]
             [qrity.metadata :as metadata]
             [qrity.parameters :as parameters]
+            [qrity.validation :as validation]
             #?(:clj [clojure.test :refer [deftest is]]
                :cljs [cljs.test :refer-macros [deftest is]])))
 
@@ -444,11 +445,12 @@
     (is (not
          (matrix/metadata-resolution-matches?
           ready complete :m 3)))
-    (doseq [invalid [complete partial malformed (matrix/function-matrix 7)]]
-      (is (= :invalid-metadata-matrix
-             (:qrity/error
-              (exception-data
-               #(matrix/resolve-metadata invalid :m 2))))))
+    (binding [validation/*canonical-checks?* true]
+      (doseq [invalid [complete partial malformed (matrix/function-matrix 7)]]
+        (is (= :invalid-metadata-matrix
+               (:qrity/error
+                (exception-data
+                 #(matrix/resolve-metadata invalid :m 2)))))))
     (is (= :invalid-error-correction-level
            (:qrity/error
             (exception-data

@@ -1,6 +1,7 @@
 (ns qrity.mask-test
   (:require [clojure.spec.alpha :as s]
             [qrity.matrix :as matrix]
+            [qrity.validation :as validation]
             #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])))
 
@@ -187,18 +188,19 @@
         corrupted (assoc-in placed [0 0] :reserved-light)
         final-bits
         (matrix/final-bit-matrix completed)]
-    (doseq [invalid [nil
-                     (matrix/function-matrix 7)
-                     completed
-                     ragged
-                     corrupted
-                     final-bits]]
-      (let [data
-            (exception-data
-             #(matrix/apply-data-mask invalid 2))]
-        (is (= :invalid-data-mask-matrix
-               (:qrity/error data)))
-        (is (= "7.8.1" (:clause data)))))
+    (binding [validation/*canonical-checks?* true]
+      (doseq [invalid [nil
+                       (matrix/function-matrix 7)
+                       completed
+                       ragged
+                       corrupted
+                       final-bits]]
+        (let [data
+              (exception-data
+               #(matrix/apply-data-mask invalid 2))]
+          (is (= :invalid-data-mask-matrix
+                 (:qrity/error data)))
+          (is (= "7.8.1" (:clause data))))))
     (doseq [mask-reference [-1 8 1.5 nil]]
       (let [data
             (exception-data
@@ -209,10 +211,11 @@
                (:qrity/error data)))
         (is (= mask-reference (:mask-reference data)))
         (is (= "7.8.2" (:clause data)))))
-    (is (= :invalid-data-mask-matrix
-           (:qrity/error
-            (exception-data
-             #(matrix/apply-data-mask nil 8)))))
+    (binding [validation/*canonical-checks?* true]
+      (is (= :invalid-data-mask-matrix
+             (:qrity/error
+              (exception-data
+               #(matrix/apply-data-mask nil 8))))))
     (let [masked (matrix/apply-data-mask placed 0)]
       (is (s/valid? ::matrix/metadata-ready-matrix placed))
       (is (not

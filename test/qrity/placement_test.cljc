@@ -4,6 +4,7 @@
             [qrity.message :as message]
             [qrity.parameters :as parameters]
             [qrity.segment :as segment]
+            [qrity.validation :as validation]
             #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])))
 
@@ -171,19 +172,20 @@
             (assoc-in [0 0] :reserved-light)
             (assoc-in [1 1] :reserved-dark))
         placed (:matrix (matrix/place-data template valid-bits))]
-    (doseq [invalid-template
-            [nil
-             [[:unset]]
-             corrupted-template
-             placed]]
-      (is (= :invalid-function-matrix
-             (:qrity/error
-              (exception-data
-               #(matrix/data-coordinates invalid-template)))))
-      (is (= :invalid-function-matrix
-             (:qrity/error
-              (exception-data
-               #(matrix/place-data invalid-template valid-bits))))))
+    (binding [validation/*canonical-checks?* true]
+      (doseq [invalid-template
+              [nil
+               [[:unset]]
+               corrupted-template
+               placed]]
+        (is (= :invalid-function-matrix
+               (:qrity/error
+                (exception-data
+                 #(matrix/data-coordinates invalid-template)))))
+        (is (= :invalid-function-matrix
+               (:qrity/error
+                (exception-data
+                 #(matrix/place-data invalid-template valid-bits)))))))
     (doseq [[invalid-bits reason]
             [[nil :not-vector]
              [(list 0 1) :not-vector]

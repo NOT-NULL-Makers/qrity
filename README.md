@@ -261,11 +261,17 @@ metadata reservations can be resolved atomically:
 ```
 
 `resolve-metadata` infers the version from an exact construction matrix, writes both
-format copies, and writes both Version 7–40 version-information copies. It rejects
-function templates, partially resolved metadata, already completed metadata, and
-noncanonical matrices. `apply-data-mask` implements all eight Table 10 references and
-changes only encoding modules. Applying the same reference twice restores the original
-placed matrix.
+format copies, and writes both Version 7–40 version-information copies. Under
+`qrity.validation/*canonical-checks?*` it rejects function templates, partially
+resolved metadata, already completed metadata, and noncanonical matrices.
+`apply-data-mask` implements all eight Table 10 references and changes only encoding
+modules. Applying the same reference twice restores the original placed matrix.
+
+Internal canonical re-validation — proving that a supplied matrix, placement, or
+final message is exactly what the earlier stages would rebuild — is a debugging aid
+and is skipped by default. Bind `qrity.validation/*canonical-checks?*` to `true` to
+re-enable those checked boundaries; cheap input validation (payloads, mask
+references, correction levels, bit-vector shapes) always runs.
 
 This manual composition uses the same mask reference for the reversible transform and
 format metadata and therefore produces a complete explicit-profile module matrix. The

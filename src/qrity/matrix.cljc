@@ -1,7 +1,8 @@
 (ns qrity.matrix
   (:require [clojure.spec.alpha :as s]
             [qrity.metadata :as metadata]
-            [qrity.parameters :as parameters]))
+            [qrity.parameters :as parameters]
+            [qrity.validation :as validation]))
 
 (def version-1-size 21)
 
@@ -189,6 +190,10 @@
                  [(- dimension 8) 8]
                  :reserved-dark)))
 
+;; Templates are pure per-version values; canonical checks rebuild them often.
+(def ^:private canonical-function-matrix
+  (memoize build-function-matrix))
+
 (defn function-matrix?
   [value]
   (and
@@ -212,7 +217,7 @@
         (= (+ (* 8 (:total-codeword-count profile))
               (:remainder-bit-count profile))
            (count (filter #{:unset} (mapcat identity value))))
-        (= value (build-function-matrix version))))
+        (= value (canonical-function-matrix version))))
      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
        false))))
 
@@ -226,7 +231,7 @@
   ([]
    (function-matrix 1))
   ([version]
-   (build-function-matrix version)))
+   (canonical-function-matrix version)))
 
 (s/fdef function-matrix
   :args (s/alt :fixed (s/cat)
@@ -243,7 +248,8 @@
 
 (defn- require-function-matrix!
   [matrix]
-  (when-not (function-matrix? matrix)
+  (when (and validation/*canonical-checks?*
+             (not (function-matrix? matrix)))
     (throw
      (ex-info
       "Placement requires an exact canonical function-pattern template"
@@ -274,7 +280,10 @@
                  (into coordinates pair-coordinates)))))))
 
 (defn data-coordinates
-  "Returns the Clause 7.7.3 placement traversal for a canonical template."
+  "Returns the Clause 7.7.3 placement traversal for a canonical template.
+
+  Canonical input re-validation runs only under
+  `qrity.validation/*canonical-checks?*`."
   [matrix]
   (require-function-matrix! matrix)
   (traverse-data-coordinates matrix))
@@ -288,7 +297,9 @@
 (defn place-data
   "Places a complete final-message bit vector into a canonical function template.
 
-  The result is unmasked and still contains unresolved metadata reservations."
+  The result is unmasked and still contains unresolved metadata reservations.
+  Message-bit shape, count, and remainder checks always run; canonical template
+  re-validation runs only under `qrity.validation/*canonical-checks?*`."
   [matrix message-bits]
   (require-function-matrix! matrix)
   (when-not (bit-vector? message-bits)
@@ -369,7 +380,7 @@
    (vector? value)
    (let [version (inferred-version value)]
      (when version
-       (let [template (build-function-matrix version)
+       (let [template (canonical-function-matrix version)
              coordinates (traverse-data-coordinates template)
              coordinate-set (set coordinates)
              dimension (count template)]
@@ -399,7 +410,7 @@
        (= placement-keys (set (keys value)))
        (placed-matrix? (:matrix value))
        (let [version (inferred-version (:matrix value))
-             template (when version (build-function-matrix version))]
+             template (when version (canonical-function-matrix version))]
          (= (:data-coordinates value)
             (when template (traverse-data-coordinates template))))))
 
@@ -498,7 +509,7 @@
 
 (defn- metadata-ready-matrix-for-version?
   [value version]
-  (let [template (build-function-matrix version)
+  (let [template (canonical-function-matrix version)
         dimension (count template)]
     (and
      (= dimension (count value))
@@ -568,9 +579,12 @@
   "Applies one explicit Table 10 mask as a reversible encoding-region transform.
 
   The returned matrix is structurally metadata-ready, but its shape alone cannot
-  prove which mask was applied or whether multiple masks were composed."
+  prove which mask was applied or whether multiple masks were composed.
+  Canonical input re-validation runs only under
+  `qrity.validation/*canonical-checks?*`."
   [matrix mask-reference]
-  (when-not (metadata-ready-matrix? matrix)
+  (when (and validation/*canonical-checks?*
+             (not (metadata-ready-matrix? matrix)))
     (throw
      (ex-info
       "Data masking requires an exact placed matrix with unresolved metadata"
@@ -605,7 +619,7 @@
 
 (defn- metadata-complete-matrix-for-version?
   [value version]
-  (let [template (build-function-matrix version)
+  (let [template (canonical-function-matrix version)
         dimension (count template)]
     (and
      (= dimension (count value))
@@ -678,9 +692,11 @@
 
   The matrix supplies the version. The level and mask reference are explicit, but
   this low-level function cannot prove that the encoding modules were masked with
-  that reference; later orchestration must bind those operations."
+  that reference; later orchestration must bind those operations. Canonical
+  input re-validation runs only under `qrity.validation/*canonical-checks?*`."
   [matrix error-correction-level mask-reference]
-  (when-not (metadata-ready-matrix? matrix)
+  (when (and validation/*canonical-checks?*
+             (not (metadata-ready-matrix? matrix)))
     (throw
      (ex-info
       "Metadata resolution requires an exact metadata-ready construction matrix"

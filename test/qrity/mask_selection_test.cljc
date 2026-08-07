@@ -5,6 +5,7 @@
             [qrity.message :as message]
             [qrity.parameters :as parameters]
             [qrity.segment :as segment]
+            [qrity.validation :as validation]
             #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])))
 
@@ -349,28 +350,29 @@
         [_ other-version-placement]
         (final-message-and-placement "1234" 1 :q)
         candidate (mask/mask-candidate final-message placement 3)]
-    (is (= :invalid-final-message
-           (:qrity/error
-            (exception-data
-             #(mask/mask-candidates
-               (dissoc final-message :message-bits)
-               placement)))))
-    (is (= :invalid-placement
-           (:qrity/error
-            (exception-data
-             #(mask/mask-candidates final-message
-                                    (:matrix placement))))))
-    (is (= :placement-message-mismatch
-           (:qrity/error
-            (exception-data
-             #(mask/mask-candidates final-message
-                                    other-placement)))))
-    (is (= :message-placement-version-mismatch
-           (:qrity/error
-            (exception-data
-             #(mask/mask-candidates
-               final-message
-               other-version-placement)))))
+    (binding [validation/*canonical-checks?* true]
+      (is (= :invalid-final-message
+             (:qrity/error
+              (exception-data
+               #(mask/mask-candidates
+                 (dissoc final-message :message-bits)
+                 placement)))))
+      (is (= :invalid-placement
+             (:qrity/error
+              (exception-data
+               #(mask/mask-candidates final-message
+                                      (:matrix placement))))))
+      (is (= :placement-message-mismatch
+             (:qrity/error
+              (exception-data
+               #(mask/mask-candidates final-message
+                                      other-placement)))))
+      (is (= :message-placement-version-mismatch
+             (:qrity/error
+              (exception-data
+               #(mask/mask-candidates
+                 final-message
+                 other-version-placement))))))
     (is (= :invalid-mask-reference
            (:qrity/error
             (exception-data
@@ -380,10 +382,11 @@
           final-message
           placement
           (update candidate :total-penalty inc))))
-    (is (= :invalid-mask-candidates
-           (:qrity/error
-            (exception-data
-             #(mask/minimum-penalty-candidates [candidate])))))))
+    (binding [validation/*canonical-checks?* true]
+      (is (= :invalid-mask-candidates
+             (:qrity/error
+              (exception-data
+               #(mask/minimum-penalty-candidates [candidate]))))))))
 
 (deftest scoring-rejects-non-symbol-matrices
   (doseq [invalid [nil
