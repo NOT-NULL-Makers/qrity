@@ -1,10 +1,10 @@
 (ns qrity.scan-test
-  (:require [qrity.decode]
-            [qrity.detect]
+  (:require [qrity.decode :as decode]
+            [qrity.detect :as detect]
             [qrity.encode :as encode]
-            [qrity.image]
+            [qrity.image :as image]
             [qrity.image-fixtures :as fixtures]
-            [qrity.render]
+            [qrity.render :as render]
             [qrity.scan :as scan]
             #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])))
@@ -132,17 +132,17 @@
   ;; fail: the grid is not redundant refinement but the difference
   ;; between reading and not reading a bent symbol.
   (let [{:keys [picture]} (curved-picture)
-        bitmap (qrity.image/binarize-adaptive picture)
-        located (qrity.detect/locate-symbol bitmap)
+        bitmap (image/binarize-adaptive picture)
+        located (detect/locate-symbol bitmap)
         global-only (dissoc located :alignment-grid)]
     (is (= :uncorrectable-message
            (:qrity/error
             (exception-data
-             #(qrity.decode/decode-matrix
-               (qrity.detect/sample-grid bitmap global-only))))))
+             #(decode/decode-matrix
+               (detect/sample-grid bitmap global-only))))))
     (is (= curved-payload
-           (:payload (qrity.decode/decode-matrix
-                      (qrity.detect/sample-grid bitmap located)))))))
+           (:payload (decode/decode-matrix
+                      (detect/sample-grid bitmap located)))))))
 
 (deftest decodes-mirrored-and-inverted-pictures
   (let [{:keys [matrix]} (alphanumeric-symbol)
@@ -176,7 +176,7 @@
 (deftest inverted-rendering-round-trips
   (let [{:keys [matrix]} (encode/encode-numeric "8675309" :m)
         picture (fixtures/pbm->luminance-image
-                 (qrity.render/render-pbm matrix 4 4 {:inverted? true}))
+                 (render/render-pbm matrix 4 4 {:inverted? true}))
         decoded (scan/decode-luminance-image picture)]
     (is (= "8675309" (:payload decoded)))
     (is (true? (:inverted? decoded))

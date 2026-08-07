@@ -1,7 +1,8 @@
 # QRity
 
-QRity is an experimental, from-scratch QR Code generator for Clojure and ClojureScript.
-The core will be semantically pure: the same immutable input value must produce the
+QRity is an experimental, from-scratch QR Code generator and reader for Clojure and
+ClojureScript.
+The core is semantically pure: the same immutable input value must produce the
 same immutable symbol value without I/O, mutable global state, platform-specific image
 APIs, or a QR encoding dependency. Shared `.cljc` code is the preferred starting
 hypothesis where the two runtimes have reliably equivalent semantics; portability does
@@ -10,10 +11,17 @@ not require forcing every implementation detail into one shared namespace.
 This repository now contains generalized Numeric, Alphanumeric, and Byte generators
 for ordinary QR Versions 1–40 and correction levels L/M/Q/H. They automatically choose
 the smallest fitting version and a minimum-penalty mask, returning a fully resolved
-immutable module matrix.
+immutable module matrix. `encode-text` additionally plans free text into an optimal
+segment mix (with ECI 000026/UTF-8 when the text needs it) before selecting a version.
+The reading side decodes pictures of symbols — rotated, perspective-distorted, curved,
+mirror-imaged, light-on-dark, unevenly lit, or damaged within Reed–Solomon capacity —
+through pure stages behind thin platform pixel adapters (JVM `ImageIO`, browser
+Canvas), and a module-level inspector explains any symbol's properties. See
+*Read a QR code from a picture* below and `docs/decoding-exploration.md` for scope,
+evidence, and the open decoding decision gates.
 The original fixed Version 1-M walkthrough remains available for studying all seven
-ISO/IEC 18004 Clause 7.1 stages. The implementation remains experimental: the
-generalized APIs are provisional, and bundled bitmap/DOM adapters are not implemented.
+ISO/IEC 18004 Clause 7.1 stages. The implementation remains experimental and all
+public APIs are provisional.
 
 ## Generate a QR Code
 
@@ -516,6 +524,67 @@ Unsupported payloads fail explicitly. At present, letters, whitespace, non-ASCII
 digits, empty strings, and strings longer than 34 digits are rejected. Version,
 error-correction level, and mask selection are fixed to Version 1, level M, and mask
 reference 2.
+
+## Generate from free text
+
+`qrity.encode/encode-text` plans arbitrary text into the cheapest mix of Numeric,
+Alphanumeric, and Byte segments (`qrity.plan`) and picks the smallest fitting
+version. Text within ISO/IEC 8859-1 keeps the QR default interpretation; any other
+text switches the symbol to ECI 000026 with UTF-8 byte payloads, reported as
+`:eci-designator` on the symbol:
+
+```clojure
+(def mixed
+  (qr/encode-text "tel:+420123456789012345678901234567890" :m))
+
+(mapv :mode (:segments mixed))
+;; => [:byte :numeric]
+
+(:eci-designator (qr/encode-text "Příliš žluťoučký kůň" :q))
+;; => 26
+```
+
+Both renderers also accept `{:inverted? true}` for a Clause 6.3.1
+reflectance-reversed (light-on-dark) presentation; reversal covers the quiet zone.
+
+## Read a QR code from a picture (provisional)
+
+The reading pipeline is pure from the pixel plane down. A platform adapter —
+`qrity.image-io` (JVM `ImageIO`) or `qrity.image-canvas` (browser Canvas
+`ImageData`) — produces a plain luminance value, and `qrity.scan` composes adaptive
+binarization, finder-pattern detection, alignment-grid perspective sampling, and
+matrix decoding:
+
+```clojure
+(require '[qrity.image-io :as image-io]
+         '[qrity.scan :as scan])
+
+(def decoded
+  (scan/decode-luminance-image
+   (image-io/read-luminance-image "picture.png")))
+
+(select-keys decoded [:payload :version :error-correction-level
+                      :corrected-error-count :corrected-erasure-count
+                      :mirrored? :inverted?])
+```
+
+Rotation, perspective, smooth curvature, mirror images, and light-on-dark symbols
+are handled; damage is repaired up to the Reed–Solomon capacity (2·errors +
+erasures per block may not exceed the parity count, with unknown modules counting
+as erasures) and every repair is reported rather than silently absorbed.
+`:reconstructed-matrix` is the pristine symbol re-encoded from the corrected
+message. The decoder accepts only what the encoder's own termination and padding
+can reproduce; unsupported features (Micro QR, Kanji, Structured Append, other ECI
+designators) fail with structured errors. Evidence, honest limits — synthetic
+distortions and one foreign encoder so far, not yet real photographs — and the open
+decoding decision gates live in `docs/decoding-exploration.md`; the cross-decoder
+mangling harness is `scripts/mangle_and_verify.py`.
+
+`qrity.inspect` is the symbol debugger: `symbol-properties`/`describe-symbol`
+report everything a symbol declares, and `explain-module`/`describe-module` state
+exactly what one module contributes — down to which bit of which codeword in which
+block, and which field of which segment it lands in. A static demonstration page
+(generation, upload reading, and the inspector's report) lives under `site/`.
 
 ## Goals
 

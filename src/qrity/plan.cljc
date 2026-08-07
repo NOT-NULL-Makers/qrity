@@ -268,8 +268,6 @@
                {:character-count (count code-points)
                 :error-correction-level error-correction-level}))))
 
-(s/def ::planned-version ::parameters/version)
-
 (s/fdef plan-text
   :args (s/cat :payload-text (s/and string? seq)
                :error-correction-level

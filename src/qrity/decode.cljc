@@ -1,25 +1,28 @@
 (ns qrity.decode
-  "Exploratory pure decoding of a resolved ordinary-QR module matrix.
+  "Pure decoding of a resolved ordinary-QR module matrix.
 
   This namespace inverts the Clause 7.1 encoding stages for the encoder's own
-  supported subset: single-segment Numeric, Alphanumeric, and default-ECI Byte
-  symbols, Versions 1-40, levels L/M/Q/H. It reuses the encoder's tables and
-  transforms wherever the standard makes a stage self-inverse or replayable:
-  the canonical function templates and placement traversal, the Table 10 masks,
-  the 32 possible format words, the block-interleaving order, and Reed-Solomon
-  parity generation.
+  supported subset: multi-segment Numeric, Alphanumeric, and Byte messages
+  under the default interpretation or ECI 000026 (UTF-8), Versions 1-40,
+  levels L/M/Q/H. It reuses the encoder's tables and transforms wherever the
+  standard makes a stage self-inverse or replayable: the canonical function
+  templates and placement traversal, the Table 10 masks, the 32 possible
+  format words and 34 version words, the block-interleaving order, and
+  Reed-Solomon parity generation.
 
   Damage tolerance is realized in codeword space, not pixel space:
-  Reed-Solomon correction repairs up to ⌊parity/2⌋ damaged codewords per
-  block, and format information tolerates up to three flipped modules per
-  copy because exhaustive candidate matching realizes the BCH(15,5)
-  correction capacity. A successfully decoded symbol also yields
+  Reed-Solomon correction repairs errors and erasures up to
+  2·errors + erasures = parity per block (unknown modules arrive as nil
+  cells and cost half), and format information tolerates up to three
+  flipped modules per copy because exhaustive candidate matching realizes
+  the BCH(15,5) correction capacity. A successfully decoded symbol also yields
   `:reconstructed-matrix` — the pristine module matrix re-encoded from the
   corrected codewords, which is what \"repairing the image\" means here: the
   damaged pixels are diagnosis material, and the repaired symbol is a
-  re-render. Message structure is verified by re-encoding the parsed segment
-  with the encoder's own termination and padding; anything the encoder could
-  not have produced is refused rather than half-read.
+  re-render. Message structure is verified by re-encoding: the
+  end-of-message test only accepts a stream whose entire tail is the
+  encoder's own termination and padding, so anything the encoder could not
+  have produced is refused rather than half-read.
 
   See docs/decoding-exploration.md for the pipeline this fits into."
   (:require [clojure.spec.alpha :as s]
@@ -350,7 +353,7 @@
 (defn- read-numeric-group
   [data-bits offset digit-count]
   (let [width (case digit-count 1 4 2 7 3 10)
-        maximum (dec (long (Math/pow 10 digit-count)))
+        maximum (case digit-count 1 9 2 99 3 999)
         value (read-unsigned-integer data-bits offset width
                                      {:mode :numeric})]
     (when (> value maximum)
@@ -434,7 +437,7 @@
 (defn- parse-eci-designator
   "Reads the variable-width ECI designator after a 0111 mode indicator."
   [data-bits offset]
-  (let [first-octet (read-unsigned-integer data-bits offset 8 {:eci true})]
+  (let [first-octet (read-unsigned-integer data-bits offset 8 {:field :eci-designator})]
     (cond
       (zero? (bit-and first-octet 0x80))
       {:designator (bit-and first-octet 0x7F)
@@ -444,14 +447,14 @@
       {:designator (bit-or
                     (bit-shift-left (bit-and first-octet 0x3F) 8)
                     (read-unsigned-integer data-bits (+ offset 8) 8
-                                           {:eci true}))
+                                           {:field :eci-designator}))
        :next-offset (+ offset 16)}
 
       (= 0xC0 (bit-and first-octet 0xE0))
       {:designator (bit-or
                     (bit-shift-left (bit-and first-octet 0x1F) 16)
                     (read-unsigned-integer data-bits (+ offset 8) 16
-                                           {:eci true}))
+                                           {:field :eci-designator}))
        :next-offset (+ offset 24)}
 
       :else
@@ -631,10 +634,19 @@
        :mask-reference 3
        :format-hamming-distance 0
        :corrected-error-count 0
+       :corrected-erasure-count 0
        :mode :numeric
        :character-count 35
        :payload \"867...\"
+       :segments [{:mode :numeric :character-count 35
+                   :bit-range [0 131] :payload \"867...\"}]
+       :message-end-offset 131
        :reconstructed-matrix [[...]]}
+
+  `:segments` carries each parsed segment with its bit range in the data
+  stream; `:message-end-offset` is where termination and padding begin.
+  Versions 7+ additionally report `:version-information`, and UTF-8
+  symbols report `:eci-designator` 26.
 
   A module may be nil, meaning its value is unknown — a sample that fell
   outside the picture, or a region a caller knows is covered. Unknown
@@ -708,9 +720,10 @@
 (s/def ::payload (s/and string? seq))
 (s/def ::segments (s/coll-of map? :kind vector? :min-count 1))
 (s/def ::eci-designator (s/int-in 0 1000000))
-(s/def ::version-information
-  (s/keys :req-un [::status] :opt-un [::format-hamming-distance]))
+(s/def ::hamming-distance (s/int-in 0 4))
 (s/def ::status #{:confirmed :unreadable})
+(s/def ::version-information
+  (s/keys :req-un [::status] :opt-un [::hamming-distance]))
 (s/def ::corrected-error-count nat-int?)
 (s/def ::corrected-erasure-count nat-int?)
 (s/def ::reconstructed-matrix ::render/binary-square-matrix)

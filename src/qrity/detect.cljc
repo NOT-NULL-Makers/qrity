@@ -651,6 +651,15 @@
   [matrix]
   (apply mapv vector matrix))
 
+(defn- attempt-decode
+  "Decodes a sampled matrix into {:decoded ...} or {:failure ex-info}."
+  [sampled]
+  (try
+    {:decoded (decode/decode-matrix sampled)}
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (when-not (ex-data error) (throw error))
+      {:failure error})))
+
 (defn decode-bitmap
   "Locates, samples, and decodes one QR symbol from a binarized bitmap.
 
@@ -663,25 +672,19 @@
   (let [located (locate-symbol bitmap)
         sampled (sample-grid bitmap located)
         detection (dissoc located :transform)
-        straight-failure
-        (try
-          (assoc (decode/decode-matrix sampled) :mirrored? false)
-          (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
-            (when-not (ex-data error) (throw error))
-            error))]
-    (if-not (instance? #?(:clj clojure.lang.ExceptionInfo
-                          :cljs ExceptionInfo)
-                       straight-failure)
-      (assoc straight-failure :detection detection)
-      (try
-        (assoc (decode/decode-matrix (transpose sampled))
-               :mirrored? true
-               :detection detection)
-        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
-          (when-not (ex-data error) (throw error))
-          ;; The straight reading's failure describes the symbol better
-          ;; than the mirrored retry's.
-          (throw straight-failure))))))
+        straight (attempt-decode sampled)
+        mirrored (when-not (:decoded straight)
+                   (attempt-decode (transpose sampled)))]
+    (cond
+      (:decoded straight)
+      (assoc (:decoded straight) :mirrored? false :detection detection)
+
+      (:decoded mirrored)
+      (assoc (:decoded mirrored) :mirrored? true :detection detection)
+
+      ;; The straight reading's failure describes the symbol better than
+      ;; the mirrored retry's.
+      :else (throw (:failure straight)))))
 
 (s/fdef decode-bitmap
   :args (s/cat :bitmap ::image/bitmap)
