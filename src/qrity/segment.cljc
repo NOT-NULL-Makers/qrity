@@ -74,22 +74,22 @@
               :maximum-capacity capacity}))
     profile))
 
+(defn- numeric-segment-bits*
+  [digits version]
+  (bits/numeric-segment-bits digits
+                             (character-count-bit-width version)))
+
 (defn numeric-segment-bits
   "Builds one unpadded Numeric segment for a canonical version/level profile."
   [digits version error-correction-level]
   (selected-profile digits version error-correction-level)
-  (bits/numeric-segment-bits digits
-                             (character-count-bit-width version)))
+  (numeric-segment-bits* digits version))
 
 (defn numeric-data-codewords
   "Builds exactly the selected profile's padded Numeric data codewords."
   [digits version error-correction-level]
-  (let [profile (selected-profile digits version error-correction-level)
-        segment-bits
-        (bits/numeric-segment-bits
-         digits
-         (character-count-bit-width version))]
-    (bits/pad-data-codewords segment-bits
+  (let [profile (selected-profile digits version error-correction-level)]
+    (bits/pad-data-codewords (numeric-segment-bits* digits version)
                              (:data-codeword-count profile))))
 
 (defn- selected-alphanumeric-profile
@@ -110,36 +110,32 @@
               :maximum-capacity capacity}))
     [profile data-bits]))
 
+(defn- alphanumeric-segment-bits*
+  [payload version data-bits]
+  (into
+   [0 0 1 0]
+   (concat
+    (bits/unsigned-integer->bits
+     (count payload)
+     (alphanumeric-character-count-bit-width version))
+    data-bits)))
+
 (defn alphanumeric-segment-bits
   "Builds one unpadded Alphanumeric segment for a canonical version/level."
   [payload version error-correction-level]
   (let [[_ data-bits]
         (selected-alphanumeric-profile
          payload version error-correction-level)]
-    (into
-     [0 0 1 0]
-     (concat
-      (bits/unsigned-integer->bits
-       (count payload)
-       (alphanumeric-character-count-bit-width version))
-      data-bits))))
+    (alphanumeric-segment-bits* payload version data-bits)))
 
 (defn alphanumeric-data-codewords
   "Builds exactly the selected profile's padded Alphanumeric data codewords."
   [payload version error-correction-level]
   (let [[profile data-bits]
         (selected-alphanumeric-profile
-         payload version error-correction-level)
-        segment-bits
-        (into
-         [0 0 1 0]
-         (concat
-          (bits/unsigned-integer->bits
-           (count payload)
-           (alphanumeric-character-count-bit-width version))
-          data-bits))]
+         payload version error-correction-level)]
     (bits/pad-data-codewords
-     segment-bits
+     (alphanumeric-segment-bits* payload version data-bits)
      (:data-codeword-count profile))))
 
 (defn- selected-byte-profile
@@ -160,34 +156,30 @@
               :maximum-capacity capacity}))
     [profile data-bits]))
 
+(defn- byte-segment-bits*
+  [octets version data-bits]
+  (into
+   [0 1 0 0]
+   (concat
+    (bits/unsigned-integer->bits
+     (count octets)
+     (byte-character-count-bit-width version))
+    data-bits)))
+
 (defn byte-segment-bits
   "Builds one unpadded Byte segment for a canonical version/level profile."
   [octets version error-correction-level]
   (let [[_ data-bits]
         (selected-byte-profile octets version error-correction-level)]
-    (into
-     [0 1 0 0]
-     (concat
-      (bits/unsigned-integer->bits
-       (count octets)
-       (byte-character-count-bit-width version))
-      data-bits))))
+    (byte-segment-bits* octets version data-bits)))
 
 (defn byte-data-codewords
   "Builds exactly the selected profile's padded Byte data codewords."
   [octets version error-correction-level]
   (let [[profile data-bits]
-        (selected-byte-profile octets version error-correction-level)
-        segment-bits
-        (into
-         [0 1 0 0]
-         (concat
-          (bits/unsigned-integer->bits
-           (count octets)
-           (byte-character-count-bit-width version))
-          data-bits))]
+        (selected-byte-profile octets version error-correction-level)]
     (bits/pad-data-codewords
-     segment-bits
+     (byte-segment-bits* octets version data-bits)
      (:data-codeword-count profile))))
 
 (defn numeric-request?
