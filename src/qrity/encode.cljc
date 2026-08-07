@@ -10,6 +10,7 @@
             [qrity.matrix :as matrix]
             [qrity.message :as message]
             [qrity.parameters :as parameters]
+            [qrity.plan :as plan]
             [qrity.reed-solomon :as reed-solomon]
             [qrity.segment :as segment]
             [qrity.spec :as qspec]
@@ -582,6 +583,30 @@
   (encode-byte*
    (bits/iso-8859-1-string->octets text)
    error-correction-level))
+
+(defn encode-text
+  "Generates a symbol from free text with optimal segmentation.
+
+  Splits the text into the cheapest mix of Numeric, Alphanumeric, and Byte
+  segments (`qrity.plan`), chooses the smallest fitting Version 1 through
+  40, and selects the lowest-reference minimum-penalty mask. Text within
+  ISO/IEC 8859-1 uses the QR default interpretation with no ECI header;
+  any other text switches the symbol to ECI 000026 and UTF-8 byte
+  payloads, reported as `:eci-designator` on the symbol. This additive API
+  is provisional."
+  [text error-correction-level]
+  (let [{:keys [version segments bit-vector eci-designator]}
+        (plan/plan-text text error-correction-level)
+        data-codewords
+        (bits/pad-data-codewords
+         bit-vector
+         (plan/data-codeword-count version error-correction-level))]
+    (cond-> (compose-symbol
+             version
+             error-correction-level
+             segments
+             data-codewords)
+      eci-designator (assoc :eci-designator eci-designator))))
 
 (s/fdef analyze-data
   :args (s/cat :state map?)

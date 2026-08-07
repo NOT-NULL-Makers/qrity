@@ -72,7 +72,12 @@
       (assoc-in matrix coordinate cell)
       (fail-collision! pattern coordinate existing cell))))
 
-(defn- secondary-format-coordinates-for
+(defn secondary-format-coordinates-for
+  "The dimension-dependent second format copy, in the encoder's write order.
+
+  The encoder writes this copy least-significant bit first, so the
+  coordinate at position k carries format bit 14-k (most-significant-first
+  numbering)."
   [dimension]
   (into []
         (concat
@@ -482,7 +487,11 @@
                          secondary-format-coordinates
                          least-significant-first)))))
 
-(defn- version-information-placement-coordinates
+(defn version-information-placement-coordinates
+  "Both Clause 7.10 version-information blocks' coordinates, bit 0 first.
+
+  The encoder writes the reversed 18-bit word, so the coordinate at
+  position k carries version bit 17-k (most-significant-first numbering)."
   [dimension]
   {:top-right
    (mapv (fn [bit-index]
@@ -524,7 +533,8 @@
    (when-let [version (inferred-version value)]
      (metadata-ready-matrix-for-version? value version))))
 
-(defn- data-mask-condition?
+(defn data-mask-condition?
+  "True when the Table 10 mask flips the module at [row column]."
   [mask-reference row column]
   (let [product (* row column)]
     (case mask-reference

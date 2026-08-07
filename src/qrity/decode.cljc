@@ -30,7 +30,8 @@
             [qrity.parameters :as parameters]
             [qrity.reed-solomon :as reed-solomon]
             [qrity.render :as render]
-            [qrity.segment :as segment]))
+            [qrity.segment :as segment]
+            [qrity.text :as text]))
 
 (def format-information-tolerance
   "Maximum tolerated Hamming distance to a valid format word.
@@ -62,19 +63,6 @@
   [bits-a bits-b]
   (count (filter true? (map not= bits-a bits-b))))
 
-(defn- secondary-format-coordinates-for
-  "The dimension-dependent second format copy, in the encoder's write order.
-
-  The encoder writes this copy least-significant bit first; reading these
-  coordinates therefore yields the reversed format word."
-  [dimension]
-  (into []
-        (concat
-         (for [column (range (dec dimension) (- dimension 9) -1)]
-           [8 column])
-         (for [row (range (- dimension 7) dimension)]
-           [row 8]))))
-
 (defn- read-modules
   [matrix coordinates]
   (mapv #(get-in matrix %) coordinates))
@@ -104,7 +92,8 @@
                     (rseq
                      (read-modules
                       bit-matrix
-                      (secondary-format-coordinates-for dimension)))))
+                      (matrix/secondary-format-coordinates-for
+                       dimension)))))
         best (min-key :hamming-distance primary secondary)]
     (when (> (:hamming-distance best) format-information-tolerance)
       (fail! :unreadable-format-information
@@ -185,8 +174,12 @@
            (repeat block-count data-codeword-count-per-block)))
         block-groups))
 
-(defn- deinterleave-codewords
-  "Redistributes column-interleaved codewords into their original blocks."
+(defn deinterleave-codewords
+  "Redistributes column-interleaved codewords into their original blocks.
+
+  Also inverts index vectors: deinterleaving `(range n)` yields, per block,
+  the interleaved index of each of its codewords — the mapping erasure
+  bookkeeping and the inspector both replay."
   [codewords lengths]
   (let [placement-order (for [codeword-index (range (apply max lengths))
                               [block-index length] (map-indexed vector lengths)
@@ -361,9 +354,54 @@
                        (read-unsigned-integer data-bits octet-offset 8
                                               {:mode :byte}))
                      (range offset (+ offset (* 8 character-count)) 8))]
-    {:payload (apply str (map char octets))
-     :octets octets
+    {:octets octets
      :end-offset (+ offset (* 8 character-count))}))
+
+(defn- byte-payload-text
+  "Interprets Byte-mode octets under the active ECI.
+
+  The QR default interpretation (no header, or ECI 000003) reads octets as
+  ISO/IEC 8859-1; ECI 000026 reads them as UTF-8. Other designators are
+  outside the supported subset and are refused, octets intact in the error."
+  [octets eci-designator]
+  (case (or eci-designator 3)
+    3 (apply str (map char octets))
+    26 (text/utf-8-text octets)
+    (fail! :unsupported-eci
+           "The active ECI designator is outside the supported subset"
+           {:eci-designator eci-designator
+            :supported-eci-designators #{3 26}
+            :octets octets}
+           "7.4.2")))
+
+(defn- parse-eci-designator
+  "Reads the variable-width ECI designator after a 0111 mode indicator."
+  [data-bits offset]
+  (let [first-octet (read-unsigned-integer data-bits offset 8 {:eci true})]
+    (cond
+      (zero? (bit-and first-octet 0x80))
+      {:designator (bit-and first-octet 0x7F)
+       :next-offset (+ offset 8)}
+
+      (= 0x80 (bit-and first-octet 0xC0))
+      {:designator (bit-or
+                    (bit-shift-left (bit-and first-octet 0x3F) 8)
+                    (read-unsigned-integer data-bits (+ offset 8) 8
+                                           {:eci true}))
+       :next-offset (+ offset 16)}
+
+      (= 0xC0 (bit-and first-octet 0xE0))
+      {:designator (bit-or
+                    (bit-shift-left (bit-and first-octet 0x1F) 16)
+                    (read-unsigned-integer data-bits (+ offset 8) 16
+                                           {:eci true}))
+       :next-offset (+ offset 24)}
+
+      :else
+      (fail! :invalid-eci-header
+             "The ECI designator prefix is malformed"
+             {:first-octet first-octet}
+             "7.4.2"))))
 
 (defn- character-count-width
   [mode version]
@@ -372,40 +410,28 @@
     :alphanumeric (segment/alphanumeric-character-count-bit-width version)
     :byte (segment/byte-character-count-bit-width version)))
 
-(defn- verify-message-structure!
-  "Requires the received data codewords to equal the parsed segment re-encoded.
+(defn- padding-completes?
+  "True when everything after `offset` is canonical termination and padding.
 
-  Reusing `bits/pad-data-codewords` makes this check exact: termination,
+  Reusing `bits/pad-data-codewords` makes this check exact — terminator,
   byte alignment, and pad codewords must all match what the encoder itself
-  would emit. Multi-segment or foreign-padding symbols are refused here."
-  [data-codewords segment-bits]
-  (when-not (= data-codewords
-               (bits/pad-data-codewords segment-bits
-                                        (count data-codewords)))
-    (fail! :unsupported-message-structure
-           "The bit stream is not a single canonically padded segment"
-           {:reason :not-single-canonical-segment
-            :segment-bit-count (count segment-bits)
-            :data-codeword-count (count data-codewords)}
-           "7.4")))
+  would emit — and doubles as the end-of-message test, so a stream is only
+  accepted once its entire tail is proven canonical."
+  [data-codewords data-bits offset]
+  (= data-codewords
+     (bits/pad-data-codewords (subvec data-bits 0 offset)
+                              (count data-codewords))))
 
-(defn- parse-data-codewords
-  [data-codewords version]
-  (let [data-bits (bits/codewords->bits data-codewords)
-        mode-value (read-unsigned-integer data-bits 0 4 {})
-        mode (or (mode-indicator-values mode-value)
-                 (fail! :unsupported-mode
-                        "The mode indicator is outside the supported subset"
-                        {:mode-indicator-value mode-value
-                         :supported-modes (set (vals mode-indicator-values))}
-                        "7.4.1"))
-        count-width (character-count-width mode version)
-        character-count (read-unsigned-integer data-bits 4 count-width
+(defn- parse-segment
+  [data-bits offset mode version eci-designator]
+  (let [count-width (character-count-width mode version)
+        character-count (read-unsigned-integer data-bits (+ offset 4)
+                                               count-width
                                                {:mode mode})
-        payload-offset (+ 4 count-width)]
+        payload-offset (+ offset 4 count-width)]
     (when (zero? character-count)
       (fail! :empty-segment
-             "The segment declares zero characters"
+             "A segment declares zero characters"
              {:mode mode}
              "7.4.2"))
     (let [{:keys [payload octets end-offset]}
@@ -416,12 +442,83 @@
                            data-bits payload-offset character-count)
             :byte (parse-byte-payload
                    data-bits payload-offset character-count))]
-      (verify-message-structure! data-codewords
-                                 (subvec data-bits 0 end-offset))
-      (cond-> {:mode mode
-               :character-count character-count
-               :payload payload}
-        octets (assoc :octets octets)))))
+      {:segment (cond-> {:mode mode
+                         :character-count character-count
+                         :bit-range [offset end-offset]
+                         :payload (if octets
+                                    (byte-payload-text octets
+                                                       eci-designator)
+                                    payload)}
+                  octets (assoc :octets octets)
+                  (and octets eci-designator)
+                  (assoc :eci-designator eci-designator))
+       :end-offset end-offset})))
+
+(defn- parse-message
+  "Parses the corrected data codewords into ECI state and mode segments.
+
+  The stream ends exactly where `padding-completes?` accepts the tail;
+  anything else — an unknown mode indicator, a non-canonical terminator or
+  padding, a truncated field — is refused rather than half-read."
+  [data-codewords version]
+  (let [data-bits (bits/codewords->bits data-codewords)]
+    (loop [offset 0
+           eci-designator nil
+           eci-headers []
+           segments []]
+      (if (padding-completes? data-codewords data-bits offset)
+        (if (empty? segments)
+          (fail! :empty-message
+                 "The message terminates before any segment"
+                 {}
+                 "7.4")
+          {:segments segments
+           :eci-designator eci-designator
+           :eci-headers eci-headers
+           :message-end-offset offset})
+        (let [mode-value (read-unsigned-integer data-bits offset 4 {})]
+          (cond
+            (= 7 mode-value)
+            (let [{:keys [designator next-offset]}
+                  (parse-eci-designator data-bits (+ offset 4))]
+              (recur next-offset
+                     designator
+                     (conj eci-headers
+                           {:designator designator
+                            :bit-range [offset next-offset]})
+                     segments))
+
+            (contains? mode-indicator-values mode-value)
+            (let [{:keys [segment end-offset]}
+                  (parse-segment data-bits offset
+                                 (mode-indicator-values mode-value)
+                                 version
+                                 eci-designator)]
+              (recur end-offset
+                     eci-designator
+                     eci-headers
+                     (conj segments segment)))
+
+            :else
+            (fail! :unsupported-message-structure
+                   "The bit stream is not built from supported segments"
+                   {:reason :unrecognized-mode-indicator
+                    :mode-indicator-value mode-value
+                    :offset offset
+                    :supported-modes (set (vals mode-indicator-values))}
+                   "7.4.1")))))))
+
+(defn- message-summary
+  [{:keys [segments eci-designator eci-headers message-end-offset]}]
+  (let [single (when (= 1 (count segments)) (first segments))]
+    (cond-> {:segments segments
+             :mode (if single (:mode single) :mixed)
+             :character-count (transduce (map :character-count) + segments)
+             :payload (apply str (map :payload segments))
+             :message-end-offset message-end-offset}
+      eci-designator (assoc :eci-designator eci-designator)
+      (seq eci-headers) (assoc :eci-headers eci-headers)
+      (:octets single) (assoc :octets (:octets single)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Public entry point
@@ -542,13 +639,15 @@
                                    version
                                    error-correction-level
                                    mask-reference)}
-           (parse-data-codewords data-codewords version))))
+           (message-summary (parse-message data-codewords version)))))
 
 (s/def ::format-hamming-distance
   (s/int-in 0 (inc format-information-tolerance)))
-(s/def ::mode #{:numeric :alphanumeric :byte})
+(s/def ::mode #{:numeric :alphanumeric :byte :mixed})
 (s/def ::character-count pos-int?)
 (s/def ::payload (s/and string? seq))
+(s/def ::segments (s/coll-of map? :kind vector? :min-count 1))
+(s/def ::eci-designator (s/int-in 0 1000000))
 (s/def ::corrected-error-count nat-int?)
 (s/def ::corrected-erasure-count nat-int?)
 (s/def ::reconstructed-matrix ::render/binary-square-matrix)
@@ -563,8 +662,9 @@
                    ::reconstructed-matrix
                    ::mode
                    ::character-count
-                   ::payload]
-          :opt-un [::bits/octets]))
+                   ::payload
+                   ::segments]
+          :opt-un [::bits/octets ::eci-designator]))
 
 (s/def ::decodable-matrix decodable-matrix?)
 

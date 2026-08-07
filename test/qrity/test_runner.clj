@@ -17,10 +17,12 @@
             [qrity.message-test]
             [qrity.parameters-test]
             [qrity.placement-test]
+            [qrity.plan-test]
             [qrity.reed-solomon-test]
             [qrity.render-test]
             [qrity.scan-test]
-            [qrity.segment-test]))
+            [qrity.segment-test]
+            [qrity.text-test]))
 
 (defn -main
   [& _]
@@ -42,10 +44,12 @@
                         'qrity.message-test
                         'qrity.parameters-test
                         'qrity.placement-test
+                        'qrity.plan-test
                         'qrity.reed-solomon-test
                         'qrity.render-test
                         'qrity.scan-test
-                        'qrity.segment-test)]
+                        'qrity.segment-test
+                        'qrity.text-test)]
     (when-not (and (pos? test)
                    (zero? (+ fail error)))
       (System/exit 1))))

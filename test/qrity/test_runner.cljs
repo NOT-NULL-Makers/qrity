@@ -16,10 +16,12 @@
             [qrity.message-test]
             [qrity.parameters-test]
             [qrity.placement-test]
+            [qrity.plan-test]
             [qrity.reed-solomon-test]
             [qrity.render-test]
             [qrity.scan-test]
-            [qrity.segment-test]))
+            [qrity.segment-test]
+            [qrity.text-test]))
 
 (defmethod test/report [:cljs.test/default :end-run-tests]
   [summary]
@@ -50,9 +52,11 @@
                   'qrity.message-test
                   'qrity.parameters-test
                   'qrity.placement-test
+                  'qrity.plan-test
                   'qrity.reed-solomon-test
                   'qrity.render-test
                   'qrity.scan-test
-                  'qrity.segment-test))
+                  'qrity.segment-test
+                  'qrity.text-test))
 
 (set! *main-cli-fn* -main)
