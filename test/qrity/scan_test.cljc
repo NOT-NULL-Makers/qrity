@@ -66,6 +66,17 @@
         decoded (scan/decode-luminance-image warped)]
     (is (= alphanumeric-payload (:payload decoded)))))
 
+(deftest decodes-a-contrast-compressed-picture
+  ;; With module size equal to the binarizer's block size, most blocks
+  ;; are single-surface; the flat-block black point must adapt to the
+  ;; picture's actual range or every module reads light.
+  (let [{:keys [matrix]} (alphanumeric-symbol)
+        washed (fixtures/compress-contrast
+                (fixtures/matrix->luminance-image matrix 8 4)
+                119 208)
+        decoded (scan/decode-luminance-image washed)]
+    (is (= alphanumeric-payload (:payload decoded)))))
+
 (deftest decodes-through-an-uneven-lighting-gradient
   (let [{:keys [matrix]} (alphanumeric-symbol)
         shaded (fixtures/shade-image

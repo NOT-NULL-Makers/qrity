@@ -84,7 +84,7 @@
 (def ^:private minimum-dynamic-range 24)
 
 (defn- block-black-points
-  [luminance width height block-columns block-rows]
+  [luminance width height block-columns block-rows flat-margin]
   (reduce
    (fn [black-points [block-row block-column]]
      (let [x-offset (min (* block-column adaptive-block-size)
@@ -104,11 +104,14 @@
            black-point
            (if (> (- lightest darkest) minimum-dynamic-range)
              average
-             ;; A flat block is a single surface. Half the darkest value is
-             ;; a safe black point for a light surface; a dark surface must
-             ;; instead inherit its neighbors' estimate or it would classify
-             ;; itself as light.
-             (let [assumed (quot darkest 2)]
+             ;; A flat block is a single surface. For a light surface, a
+             ;; safe black point sits a quarter of the image's global
+             ;; luminance range below the block — an absolute fraction of
+             ;; the block's own value (ZXing's min/2) fails on
+             ;; contrast-compressed pictures, where half of "light" can
+             ;; land below "dark". A dark surface must instead inherit its
+             ;; neighbors' estimate or it would classify itself as light.
+             (let [assumed (max 0 (- darkest flat-margin))]
                (if (and (pos? block-row) (pos? block-column))
                  (let [above (get black-points
                                   [(dec block-row) block-column])
@@ -153,13 +156,14 @@
   (if (or (< width minimum-adaptive-size)
           (< height minimum-adaptive-size))
     (binarize image)
-    (let [_ (require-contrast! luminance)
+    (let [[darkest lightest] (require-contrast! luminance)
           block-columns (quot (+ width adaptive-block-size -1)
                               adaptive-block-size)
           block-rows (quot (+ height adaptive-block-size -1)
                            adaptive-block-size)
           black-points (block-black-points
-                        luminance width height block-columns block-rows)
+                        luminance width height block-columns block-rows
+                        (quot (- lightest darkest) 4))
           thresholds (into {}
                            (map (fn [block]
                                   [block

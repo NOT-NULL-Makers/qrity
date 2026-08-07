@@ -143,6 +143,17 @@
                (mapcat (fn [row] (rseq (vec row))))
                (partition width luminance))))
 
+(defn compress-contrast
+  "Squeezes the luminance range into [floor, ceiling].
+
+  Models washed-out prints and low-contrast screens, where absolute
+  black-point heuristics (half of \"light\" landing below \"dark\") break."
+  [{:keys [luminance] :as image} floor ceiling]
+  (assoc image
+         :luminance
+         (mapv #(+ floor (quot (* % (- ceiling floor)) 255))
+               luminance)))
+
 (defn shade-image
   "Darkens the image toward its left edge with a linear lighting gradient.
 
