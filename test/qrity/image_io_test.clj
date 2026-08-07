@@ -1,9 +1,9 @@
 (ns qrity.image-io-test
   (:require [clojure.test :refer [deftest is]]
             [qrity.encode :as encode]
-            [qrity.image :as image]
             [qrity.image-fixtures :as fixtures]
-            [qrity.image-io :as image-io])
+            [qrity.image-io :as image-io]
+            [qrity.scan :as scan])
   (:import (java.awt.image BufferedImage)
            (java.io ByteArrayOutputStream)
            (javax.imageio ImageIO)))
@@ -27,7 +27,7 @@
         {:keys [matrix]} (encode/encode-iso-8859-1 payload :m)
         png-bytes (luminance-image->png-bytes
                    (fixtures/matrix->luminance-image matrix 4 4))
-        decoded (image/decode-luminance-image
+        decoded (scan/decode-luminance-image
                  (image-io/read-luminance-image png-bytes))]
     (is (= payload (:payload decoded)))))
 

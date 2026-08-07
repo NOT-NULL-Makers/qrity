@@ -1,9 +1,12 @@
 # Decoding Exploration — Reading QR Codes from Pictures
 
-Status: exploratory, merged into `master` on 2026-08-07. This document and the
-`qrity.decode`, `qrity.image`, and `qrity.image-io` namespaces propose and
-partially evidence an approach; they do not commit the project to a public
-decoding API, and the decision gates below remain open.
+Status: exploratory, merged into `master` on 2026-08-07; extended the same day
+on `explore/robust-decoding` with Reed–Solomon error correction, finder-pattern
+detection, rotation and perspective handling, alignment-guided sampling, and
+adaptive binarization. This document and the `qrity.decode`, `qrity.detect`,
+`qrity.image`, `qrity.scan`, and `qrity.image-io` namespaces propose and
+evidence an approach; they do not commit the project to a public decoding API,
+and the decision gates below record what remains open.
 
 ## Problem definition
 
@@ -30,7 +33,9 @@ In scope for the exploration:
 - A platform boundary at *decoded pixels*: the platform (JVM `ImageIO`, browser
   Canvas, Node) turns PNG/JPEG bytes into pixel values; everything after that is
   pure `.cljc` code.
-- Clean, upright, unrotated synthetic rasters in the image front-end spike.
+- Rotated, perspective-distorted, unevenly lit, and locally damaged pictures of
+  one symbol — evidenced so far with synthetic distortions of rendered rasters,
+  not yet with photographs.
 
 Explicit non-goals, now and likely permanently:
 
@@ -40,27 +45,48 @@ Explicit non-goals, now and likely permanently:
 - Micro QR, Kanji mode, ECI headers, Structured Append, mirrored symbols — all
   outside the encoder's subset too.
 
-Deferred (real decoding work, deliberately staged behind the spike):
-
-- Reed–Solomon error *correction* (the spike detects errors and refuses).
-- Finder-pattern search, rotation, perspective correction, and
-  alignment-pattern-guided sampling for photographs.
-- Adaptive binarization for uneven lighting.
-
 ## First-principles pipeline
 
 Decoding decomposes into eight stages. The first is platform; the rest are pure.
+`qrity.scan/decode-luminance-image` composes stages 2–8.
 
-| # | Stage | Input → Output | Status on this branch |
+| # | Stage | Input → Output | Status |
 |---|---|---|---|
 | 1 | Image acquisition | PNG/JPEG bytes → luminance image value | `qrity.image-io` (JVM); browser/Node adapters documented only |
-| 2 | Binarization | luminance image → bitmap (1 = dark) | `qrity.image/binarize`, global min–max midpoint threshold |
-| 3 | Symbol location | bitmap → position, module size, dimension | `qrity.image/locate-upright-symbol`, upright integer-scale case only |
-| 4 | Grid sampling | bitmap + location → 0/1 module matrix | `qrity.image/sample-matrix`, module-center sampling |
+| 2 | Binarization | luminance image → bitmap (1 = dark) | `qrity.image/binarize-adaptive`, block-local black points (ZXing-hybrid shape); global midpoint retained for small/even rasters |
+| 3 | Symbol location | bitmap → finder centers, module size, dimension, transform | `qrity.detect`: 1:1:3:1:1 run scanning with cross-checks, geometric ordering, axis-run module measurement, alignment-pattern refinement, perspective transform |
+| 4 | Grid sampling | bitmap + transform → 0/1 module matrix | `qrity.detect/sample-grid`, module-center sampling through the transform |
 | 5 | Format/version recovery | matrix → level, mask (and version from dimension) | `qrity.decode`, exhaustive match over the encoder's 32 format words, ≤ 3-bit tolerance |
 | 6 | Unmask and extract | matrix + mask → message codewords | `qrity.decode`, reusing `qrity.matrix` templates, traversal, and masks |
-| 7 | Error correction | codewords → corrected data codewords | detection only: recompute parity, refuse on mismatch |
+| 7 | Error correction | codewords → corrected data codewords | `qrity.reed-solomon/correct-codewords`: syndromes, Berlekamp–Massey, Chien search, Forney; up to ⌊parity/2⌋ errors per block |
 | 8 | Bit-stream parsing | data codewords → mode, count, payload | `qrity.decode`, strict single-segment with re-encode verification |
+
+Three location details carry most of the geometric robustness and deserve
+naming. *Rotation needs no separate pass*: any straight line through the center
+of concentric squares crosses the 1:1:3:1:1 ratio, so row scanning finds finder
+patterns at any angle, and the perspective transform absorbs the rotation along
+with skew. *Module size is measured along the symbol's own axes* — the line
+between two finder centers follows a module row, so the finder crossing along it
+is exactly seven modules regardless of rotation; dividing the center distance by
+that measure cancels the foreshortening that corrupts scan-axis run lengths.
+*Half pixels matter*: a run of L pixels has its continuous center at
+first-index + L/2, and a center formula biased by half a pixel is invisible at
+eight pixels per module but corrupts the whole grid at one.
+
+## Repairing the image
+
+The damage tolerance deliberately does not live in pixel space. Blur, blots,
+and shadows are survived by three different mechanisms at three different
+stages: adaptive binarization absorbs *lighting* damage, sampling geometry
+absorbs *projective* damage, and Reed–Solomon correction absorbs *content*
+damage — wrong modules, wherever they came from — in codeword space, where the
+mathematics of the code make repair exact rather than heuristic.
+
+\"Fixing the picture\" then falls out for free, and backwards: a successful
+decode recovers everything the encoder chose (version, level, mask, payload),
+so `:reconstructed-matrix` re-encodes the corrected codewords through the
+ordinary encoding pipeline and yields the pristine symbol — a re-render, not a
+patched image. The damaged pixels are diagnosis material; nothing edits them.
 
 Stages 5–8 are the exact inverse of the encoder and need no image at all. That is
 the load-bearing observation of this exploration: **the matrix decoder can be
@@ -106,7 +132,8 @@ standard table. Each decode stage names the encoder mechanism it inverts or reus
 | Unmasking | `matrix/apply-data-mask` — masking is a self-inverse XOR, so the encoder's transform *is* the decoder's |
 | Placement traversal | `matrix/data-coordinates` yields the Clause 7.7.3 zigzag in bit order |
 | Block structure | `parameters/ordinary-qr-parameters` block groups; deinterleaving replays the interleaving order of `message/interleave-data-codewords` in reverse |
-| Parity verification | `reed-solomon/error-correction-codewords` recomputed per block and compared |
+| Error correction | the same GF(256) arithmetic and generator roots as `reed-solomon/error-correction-codewords`; correction verifies itself by re-running the syndrome check |
+| Symbol repair | `message/construct-final-message` and the `qrity.matrix` pipeline re-encode the corrected codewords into `:reconstructed-matrix` |
 | Payload alphabets and packing | `bits/alphanumeric-repertoire`, count widths from `qrity.segment`, and `bits/pad-data-codewords` for the re-encode check |
 
 The re-encode check deserves a note: after parsing one segment, the spike
@@ -120,25 +147,35 @@ reproduce bit-for-bit.*
 ## Error handling posture
 
 Failures are structured `ex-info` values in the house style (`:qrity/error`,
-`:reason`, ISO clause), never silent partial results. The spike's honest
-limitation is stage 7: it computes whether the symbol carries errors but cannot
-yet repair them, so a damaged data region fails with
-`:qrity/error :corrupted-message` and `:reason :error-correction-not-implemented`.
-Format information, by contrast, already tolerates up to three flipped modules per
-copy, because exhaustive candidate matching gives BCH correction for free.
+`:reason`, ISO clause), never silent partial results. Damage within capacity is
+repaired and *reported* — `:corrected-error-count` and the format copies'
+Hamming distance stay visible in the result rather than being silently
+absorbed — while damage beyond capacity fails with
+`:qrity/error :uncorrectable-message` naming the failing blocks. Correction
+distrusts itself: a corrected block is re-checked against the syndromes, and a
+locator whose roots do not account for its degree is refused rather than
+applied.
 
-## Evidence on this branch
+## Evidence
 
 - Encode→decode round trips for Numeric, Alphanumeric, Byte, and ISO-8859-1
-  payloads, including a multi-block Version ≥ 7 symbol (exercising interleaving
-  and the version-information region).
-- Raster round trips: matrix → synthetic luminance raster (several scales and
-  quiet zones) → binarize → locate → sample → decode → original payload.
+  payloads, all four levels, and a multi-block Version ≥ 7 symbol (exercising
+  interleaving, the version-information region, and alignment-guided sampling).
+- Reed–Solomon: every error count up to ⌊parity/2⌋ corrected across five parity
+  profiles with deterministic pseudo-random damage; damage beyond capacity
+  refused; single corruptions always detected by syndromes.
+- Picture round trips through `qrity.scan/decode-luminance-image`: clean rasters
+  across scales and quiet zones; rotations of 30°, 90°, 137°, and 262°; a
+  perspective-warped picture; a strong lighting gradient (where the global
+  threshold demonstrably misreads hundreds of pixels and the adaptive
+  binarizer misreads none); a blotted symbol repaired through error correction
+  with `:reconstructed-matrix` equal to the pristine encoder output; and a
+  combined rotated, shaded, blotted picture.
 - JVM boundary round trip: matrix → `BufferedImage` → PNG bytes → `ImageIO` →
   luminance value → decode.
-- Negative evidence: flipped data module is detected and refused; flipped format
-  modules within BCH tolerance still decode; blank and low-contrast images fail
-  with structured errors.
+- Negative evidence: damage beyond correction capacity, unreadable format
+  information, no-symbol and low-contrast images all fail with structured
+  errors.
 
 Run with the existing commands: `clojure -M:test` and `clojure -M:cljs-test`
 (the JVM `ImageIO` adapter test runs only under `-M:test`).
@@ -150,12 +187,13 @@ with defaults:
 
 | Decision gate | Current status | Evidence needed | Close before |
 |---|---|---|---|
-| Reed–Solomon correction algorithm (Berlekamp–Massey vs Euclidean; erasure support) | Open; detection-only spike | Worked ISO examples, property tests against deliberately damaged symbols, cross-runtime arithmetic parity | Claiming tolerance of damaged symbols |
-| Binarization for photographs (global vs adaptive/Sauvola) | Global midpoint decided for synthetic rasters only | Corpus of real photographs with lighting gradients | Accepting camera input |
-| Finder detection and perspective sampling (1:1:3:1:1 run scanning, homography, alignment-pattern refinement) | Open; upright integer-scale locator only | Rotated/skewed test corpus; comparison with reference decoders | Accepting camera input |
-| Version cross-check via the 18-bit version-information blocks | Version derived from sampled dimension only | Damaged-symbol corpus where dimension estimation misleads | Error-corrected decoding of Versions ≥ 7 |
-| Tolerant multi-segment parsing vs strict re-encode verification | Strict single-segment decided for the spike | Interoperability evidence from symbols produced by other encoders | Decoding third-party symbols |
-| Luminance plane representation (plain vector vs packed platform arrays behind the same seam) | Plain vector decided for the spike | Profiling on realistic image sizes in both runtimes | Optimizing; the seam itself should hold |
+| Reed–Solomon correction algorithm | Berlekamp–Massey with Chien search and Forney decided; erasure support (knowing *where* damage is doubles capacity) remains open | Erasure-location evidence from the sampling stage; worked ISO examples | Claiming the full theoretical damage tolerance |
+| Binarization for photographs | Block-local black points (ZXing-hybrid shape) decided; evidenced on synthetic gradients only | Corpus of real photographs — sensor noise, blur, specular highlights | Any real-photograph robustness claim |
+| Finder detection and perspective sampling | Run scanning, cross-checks, axis-run module measurement, single-alignment perspective decided; evidenced on synthetic distortions | Real-photo corpus; comparison with reference decoders; multi-alignment sampling for high versions under strong warp | Any real-photograph robustness claim |
+| Version cross-check via the 18-bit version-information blocks | Version still derived from measured dimension only | Damaged-symbol corpus where dimension estimation misleads | Error-corrected decoding of Versions ≥ 7 under distortion |
+| Multiple symbols in one picture | Single-symbol assumption; extra finder candidates are pruned, not grouped | Multi-symbol grouping design and corpus | Claiming multi-symbol support |
+| Tolerant multi-segment parsing vs strict re-encode verification | Strict single-segment decided for the exploration | Interoperability evidence from symbols produced by other encoders | Decoding third-party symbols |
+| Luminance plane representation (plain vector vs packed platform arrays behind the same seam) | Plain vector decided for the exploration | Profiling on realistic image sizes in both runtimes | Optimizing; the seam itself should hold |
 | Browser/Node image acquisition adapters | JVM `ImageIO` only; Canvas `ImageData` sketched | A ClojureScript host with image access in CI | Claiming ClojureScript picture decoding |
 | Mirror-image and light-on-dark symbols | Out of scope | Standard Clause 6 review and corpus evidence | Any robustness claim |
 

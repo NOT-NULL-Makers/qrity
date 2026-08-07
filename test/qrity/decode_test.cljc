@@ -27,7 +27,9 @@
     (is (= (:version symbol-value) (:version decoded)))
     (is (= :m (:error-correction-level decoded)))
     (is (= (:mask-reference symbol-value) (:mask-reference decoded)))
-    (is (zero? (:format-hamming-distance decoded)))))
+    (is (zero? (:format-hamming-distance decoded)))
+    (is (zero? (:corrected-error-count decoded)))
+    (is (= (:matrix symbol-value) (:reconstructed-matrix decoded)))))
 
 (deftest decodes-leading-zero-numeric-groups-faithfully
   (let [payload "0012000400089"]
@@ -86,12 +88,38 @@
     (is (= "8675309" (:payload decoded)))
     (is (= 3 (:format-hamming-distance decoded)))))
 
-(deftest refuses-a-damaged-data-region-honestly
+(deftest corrects-a-damaged-data-region-and-reconstructs-the-symbol
   (let [{:keys [matrix]} (encode/encode-numeric "8675309" :m)
         damaged (flip-module matrix [12 12])
+        decoded (decode/decode-matrix damaged)]
+    (is (= "8675309" (:payload decoded)))
+    (is (= 1 (:corrected-error-count decoded)))
+    (is (= matrix (:reconstructed-matrix decoded))
+        "the repaired symbol is the pristine matrix, re-encoded")))
+
+(deftest corrects-scattered-damage-up-to-several-codewords
+  (let [{:keys [matrix]} (encode/encode-numeric "8675309" :m)
+        damaged (reduce flip-module
+                        matrix
+                        [[9 2] [12 12] [15 18] [18 10]])
+        decoded (decode/decode-matrix damaged)]
+    (is (= "8675309" (:payload decoded)))
+    (is (<= 1 (:corrected-error-count decoded) 4))
+    (is (= matrix (:reconstructed-matrix decoded)))))
+
+(deftest refuses-damage-beyond-the-correction-capacity
+  (let [{:keys [matrix]} (encode/encode-numeric "8675309" :m)
+        damaged (reduce flip-module
+                        matrix
+                        ;; Scattered across the data region so more than
+                        ;; five of Version 1-M's 26 codewords are hit.
+                        [[9 0] [9 4] [9 10] [9 16] [9 20]
+                         [12 2] [12 12] [12 18]
+                         [15 4] [15 10] [15 16]
+                         [18 2] [18 12] [18 19]])
         failure (exception-data #(decode/decode-matrix damaged))]
-    (is (= :corrupted-message (:qrity/error failure)))
-    (is (= :error-correction-not-implemented (:reason failure)))))
+    (is (= :uncorrectable-message (:qrity/error failure)))
+    (is (= [0] (:uncorrectable-block-indexes failure)))))
 
 (deftest refuses-unreadable-format-information
   (let [{:keys [matrix]} (encode/encode-numeric "8675309" :m)

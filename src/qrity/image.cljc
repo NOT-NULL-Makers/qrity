@@ -1,5 +1,5 @@
 (ns qrity.image
-  "Exploratory pure image front-end: luminance pixels to a module matrix.
+  "Pure luminance-image values and binarization for QR decoding.
 
   The platform boundary sits at the luminance image value
 
@@ -7,15 +7,14 @@
 
   where `:luminance` is a row-major vector of integers 0-255 (0 is black).
   Platform adapters such as `qrity.image-io` (JVM `ImageIO`) fill this value
-  from encoded PNG/JPEG bytes; everything in this namespace is pure and shared.
+  from encoded PNG/JPEG bytes; everything downstream is pure and shared.
 
-  The exploration handles clean, upright, unrotated symbols rendered at a
-  uniform module size, such as screenshots and synthetic rasters. Rotation,
-  perspective, uneven lighting, and finder-pattern search are documented
-  decision gates in docs/decoding-exploration.md, not silent gaps: images
-  outside the supported shape fail with structured errors."
-  (:require [clojure.spec.alpha :as s]
-            [qrity.decode :as decode]))
+  Binarization produces the bitmap value `{:width w :height h :bits [...]}`
+  with 1 for a dark pixel. `binarize` thresholds globally and suits evenly
+  lit rasters; `binarize-adaptive` computes local black points per block so
+  gradients and shadows in photographs do not swallow half the symbol.
+  Symbol detection and sampling live in `qrity.detect`."
+  (:require [clojure.spec.alpha :as s]))
 
 (defn- fail!
   [error message data]
@@ -36,131 +35,161 @@
 
 (s/def ::luminance-image luminance-image?)
 
-;; ---------------------------------------------------------------------------
-;; Binarization
+(def minimum-contrast
+  "Narrowest luminance range accepted as containing dark modules."
+  32)
+
+(defn- require-contrast!
+  [luminance]
+  (let [darkest (reduce min luminance)
+        lightest (reduce max luminance)]
+    (when (< (- lightest darkest) minimum-contrast)
+      (fail! :insufficient-contrast
+             "The luminance range is too narrow to separate dark modules"
+             {:darkest darkest :lightest lightest}))
+    [darkest lightest]))
 
 (defn binarize
-  "Thresholds a luminance image into a bitmap where 1 is a dark pixel.
+  "Thresholds a luminance image globally at the midpoint of its range.
 
-  The threshold is the midpoint of the observed luminance range — sufficient
-  for evenly lit rasters, and a documented decision gate before photographs.
+  Exact for evenly lit rasters such as screenshots and rendered fixtures.
   An image without meaningful contrast is refused rather than guessed at."
   [{:keys [width height luminance] :as image}]
   (when-not (luminance-image? image)
     (fail! :invalid-luminance-image
            "Binarization requires a well-formed luminance image value"
            {:image image}))
-  (let [darkest (reduce min luminance)
-        lightest (reduce max luminance)]
-    (when (< (- lightest darkest) 32)
-      (fail! :insufficient-contrast
-             "The luminance range is too narrow to separate dark modules"
-             {:darkest darkest :lightest lightest}))
-    (let [threshold (quot (+ darkest lightest) 2)]
+  (let [[darkest lightest] (require-contrast! luminance)
+        threshold (quot (+ darkest lightest) 2)]
+    {:width width
+     :height height
+     :bits (mapv #(if (< % threshold) 1 0) luminance)}))
+
+;; ---------------------------------------------------------------------------
+;; Adaptive binarization
+;;
+;; Block-based local black points in the shape of ZXing's hybrid binarizer:
+;; the image is tiled into 8x8-pixel blocks; each block's black point is its
+;; mean, except that a flat block (dynamic range below `minimum-dynamic-range`)
+;; is assumed single-colored and inherits its neighbors' black point when its
+;; darkest pixel says it sits inside a dark region. Each pixel then thresholds
+;; against the mean black point of the surrounding 5x5 blocks, which smooths
+;; block seams and rides luminance gradients.
+
+(def adaptive-block-size 8)
+(def minimum-adaptive-size
+  "Below this many pixels per side there are too few blocks for local
+  statistics, and adaptive binarization degenerates to the global threshold."
+  40)
+(def ^:private minimum-dynamic-range 24)
+
+(defn- block-black-points
+  [luminance width height block-columns block-rows]
+  (reduce
+   (fn [black-points [block-row block-column]]
+     (let [x-offset (min (* block-column adaptive-block-size)
+                         (- width adaptive-block-size))
+           y-offset (min (* block-row adaptive-block-size)
+                         (- height adaptive-block-size))
+           values (for [row-index (range adaptive-block-size)
+                        column-index (range adaptive-block-size)]
+                    (nth luminance
+                         (+ (* (+ y-offset row-index) width)
+                            x-offset
+                            column-index)))
+           darkest (reduce min values)
+           lightest (reduce max values)
+           average (quot (reduce + values)
+                         (* adaptive-block-size adaptive-block-size))
+           black-point
+           (if (> (- lightest darkest) minimum-dynamic-range)
+             average
+             ;; A flat block is a single surface. Half the darkest value is
+             ;; a safe black point for a light surface; a dark surface must
+             ;; instead inherit its neighbors' estimate or it would classify
+             ;; itself as light.
+             (let [assumed (quot darkest 2)]
+               (if (and (pos? block-row) (pos? block-column))
+                 (let [above (get black-points
+                                  [(dec block-row) block-column])
+                       left (get black-points
+                                 [block-row (dec block-column)])
+                       diagonal (get black-points
+                                     [(dec block-row) (dec block-column)])
+                       neighborhood (quot (+ above (* 2 left) diagonal) 4)]
+                   (if (< darkest neighborhood) neighborhood assumed))
+                 assumed)))]
+       (assoc black-points [block-row block-column] black-point)))
+   {}
+   (for [block-row (range block-rows)
+         block-column (range block-columns)]
+     [block-row block-column])))
+
+(defn- clamp
+  [value lower upper]
+  (max lower (min value upper)))
+
+(defn- neighborhood-threshold
+  [black-points block-columns block-rows block-row block-column]
+  (let [center-column (clamp block-column 2 (- block-columns 3))
+        center-row (clamp block-row 2 (- block-rows 3))
+        neighborhood (for [row-offset (range -2 3)
+                           column-offset (range -2 3)]
+                       (get black-points
+                            [(+ center-row row-offset)
+                             (+ center-column column-offset)]))]
+    (quot (reduce + neighborhood) 25)))
+
+(defn binarize-adaptive
+  "Thresholds a luminance image against block-local black points.
+
+  Robust to gradual lighting gradients and shadows. Images narrower than
+  `minimum-adaptive-size` fall back to the global `binarize`."
+  [{:keys [width height luminance] :as image}]
+  (when-not (luminance-image? image)
+    (fail! :invalid-luminance-image
+           "Binarization requires a well-formed luminance image value"
+           {:image image}))
+  (if (or (< width minimum-adaptive-size)
+          (< height minimum-adaptive-size))
+    (binarize image)
+    (let [_ (require-contrast! luminance)
+          block-columns (quot (+ width adaptive-block-size -1)
+                              adaptive-block-size)
+          block-rows (quot (+ height adaptive-block-size -1)
+                           adaptive-block-size)
+          black-points (block-black-points
+                        luminance width height block-columns block-rows)
+          thresholds (into {}
+                           (map (fn [block]
+                                  [block
+                                   (neighborhood-threshold
+                                    black-points
+                                    block-columns block-rows
+                                    (first block) (second block))]))
+                           (keys black-points))]
       {:width width
        :height height
-       :bits (mapv #(if (< % threshold) 1 0) luminance)})))
+       :bits (mapv (fn [index]
+                     (let [x (rem index width)
+                           y (quot index width)
+                           threshold (get thresholds
+                                          [(min (quot y adaptive-block-size)
+                                                (dec block-rows))
+                                           (min (quot x adaptive-block-size)
+                                                (dec block-columns))])]
+                       (if (<= (nth luminance index) threshold) 1 0)))
+                   (range (* width height)))})))
 
-(defn- bitmap-pixel
-  [{:keys [width bits]} x y]
-  (nth bits (+ (* y width) x)))
+(s/def ::bits (s/coll-of #{0 1} :kind vector? :min-count 1))
+(s/def ::width pos-int?)
+(s/def ::height pos-int?)
+(s/def ::bitmap (s/keys :req-un [::width ::height ::bits]))
 
-;; ---------------------------------------------------------------------------
-;; Symbol location and grid sampling
-
-(defn- dark-bounding-box
-  [{:keys [width height] :as bitmap}]
-  (let [dark-coordinates (for [y (range height)
-                               x (range width)
-                               :when (= 1 (bitmap-pixel bitmap x y))]
-                           [x y])]
-    (when (seq dark-coordinates)
-      {:left (reduce min (map first dark-coordinates))
-       :right (reduce max (map first dark-coordinates))
-       :top (reduce min (map second dark-coordinates))
-       :bottom (reduce max (map second dark-coordinates))})))
-
-(defn- top-left-finder-run
-  "Length of the leading dark pixel run along the symbol's top edge.
-
-  For an upright symbol this run crosses the top of the top-left finder
-  pattern, which is exactly seven modules wide."
-  [bitmap {:keys [left right top]}]
-  (count
-   (take-while #(= 1 (bitmap-pixel bitmap % top))
-               (range left (inc right)))))
-
-(defn locate-upright-symbol
-  "Locates one upright, uniformly scaled symbol in a bitmap.
-
-  Estimates the module size from the seven-module top edge of the top-left
-  finder pattern and derives the version dimension from the symbol's dark
-  bounding box. Returns `{:left :top :module-size :dimension}` in pixels, or
-  fails structurally when the image does not contain such a symbol."
-  [bitmap]
-  (let [{:keys [left right top bottom] :as bounding-box}
-        (dark-bounding-box bitmap)]
-    (when-not bounding-box
-      (fail! :no-symbol-found
-             "The bitmap contains no dark pixels"
-             {}))
-    (let [box-width (inc (- right left))
-          box-height (inc (- bottom top))
-          module-size (/ (top-left-finder-run bitmap bounding-box) 7.0)
-          dimension #?(:clj (Math/round (/ box-width module-size))
-                       :cljs (js/Math.round (/ box-width module-size)))]
-      (when-not (and (<= 21 dimension 177)
-                     (zero? (mod (- dimension 17) 4))
-                     (= dimension
-                        #?(:clj (Math/round (/ box-height module-size))
-                           :cljs (js/Math.round (/ box-height module-size)))))
-        (fail! :no-symbol-found
-               "The dark region does not measure like an upright QR symbol"
-               {:box-width box-width
-                :box-height box-height
-                :module-size module-size
-                :dimension dimension}))
-      {:left left
-       :top top
-       :module-size module-size
-       :dimension dimension})))
-
-(defn sample-matrix
-  "Samples one pixel at each module center into a 0/1 module matrix."
-  [bitmap {:keys [left top module-size dimension]}]
-  (let [center (fn [origin index]
-                 (+ origin (int (* (+ index 0.5) module-size))))]
-    (mapv (fn [row]
-            (mapv (fn [column]
-                    (bitmap-pixel bitmap
-                                  (center left column)
-                                  (center top row)))
-                  (range dimension)))
-          (range dimension))))
-
-;; ---------------------------------------------------------------------------
-;; End-to-end entry point
-
-(defn decode-luminance-image
-  "Decodes one clean upright QR symbol from a luminance image value.
-
-  Composes binarization, location, module sampling, and
-  `qrity.decode/decode-matrix`; the result is the decoded symbol map with the
-  located `:symbol-region` merged in."
-  [image]
-  (let [bitmap (binarize image)
-        region (locate-upright-symbol bitmap)]
-    (assoc (decode/decode-matrix (sample-matrix bitmap region))
-           :symbol-region region)))
-
-(s/fdef decode-luminance-image
+(s/fdef binarize
   :args (s/cat :image ::luminance-image)
-  :ret (s/merge ::decode/decoded-symbol
-                (s/keys :req-un [::symbol-region])))
+  :ret ::bitmap)
 
-(s/def ::symbol-region
-  (s/keys :req-un [::left ::top ::module-size ::dimension]))
-(s/def ::left nat-int?)
-(s/def ::top nat-int?)
-(s/def ::module-size (s/and number? pos?))
-(s/def ::dimension (s/int-in 21 178))
+(s/fdef binarize-adaptive
+  :args (s/cat :image ::luminance-image)
+  :ret ::bitmap)

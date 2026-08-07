@@ -17,7 +17,9 @@
             [qrity.message-test]
             [qrity.parameters-test]
             [qrity.placement-test]
+            [qrity.reed-solomon-test]
             [qrity.render-test]
+            [qrity.scan-test]
             [qrity.segment-test]))
 
 (defn -main
@@ -40,7 +42,9 @@
                         'qrity.message-test
                         'qrity.parameters-test
                         'qrity.placement-test
+                        'qrity.reed-solomon-test
                         'qrity.render-test
+                        'qrity.scan-test
                         'qrity.segment-test)]
     (when-not (and (pos? test)
                    (zero? (+ fail error)))

@@ -9,12 +9,15 @@
   the 32 possible format words, the block-interleaving order, and Reed-Solomon
   parity generation.
 
-  Honest limits of the exploration: Reed-Solomon *correction* is not
-  implemented, so a symbol whose recomputed parity disagrees with the received
-  parity fails with `:corrupted-message` rather than being repaired. Format
-  information, by contrast, tolerates up to three flipped modules per copy
-  because exhaustive candidate matching realizes the BCH(15,5) correction
-  capacity. Message structure is verified by re-encoding the parsed segment
+  Damage tolerance is realized in codeword space, not pixel space:
+  Reed-Solomon correction repairs up to ⌊parity/2⌋ damaged codewords per
+  block, and format information tolerates up to three flipped modules per
+  copy because exhaustive candidate matching realizes the BCH(15,5)
+  correction capacity. A successfully decoded symbol also yields
+  `:reconstructed-matrix` — the pristine module matrix re-encoded from the
+  corrected codewords, which is what \"repairing the image\" means here: the
+  damaged pixels are diagnosis material, and the repaired symbol is a
+  re-render. Message structure is verified by re-encoding the parsed segment
   with the encoder's own termination and padding; anything the encoder could
   not have produced is refused rather than half-read.
 
@@ -22,6 +25,7 @@
   (:require [clojure.spec.alpha :as s]
             [qrity.bits :as bits]
             [qrity.matrix :as matrix]
+            [qrity.message :as message]
             [qrity.metadata :as metadata]
             [qrity.parameters :as parameters]
             [qrity.reed-solomon :as reed-solomon]
@@ -178,29 +182,43 @@
             (vec (repeat (count lengths) []))
             (map vector placement-order codewords))))
 
-(defn- verify-error-correction!
-  "Detects codeword errors by recomputing each block's Reed-Solomon parity.
+(defn- correct-blocks
+  "Reed-Solomon-corrects each received block, or refuses the whole message.
 
-  The exploration cannot yet repair errors, so any disagreement is refused
-  with the blocks that failed."
+  Returns the corrected data blocks and the total corrected error count.
+  A block whose damage exceeds the parity's correction capacity makes the
+  message uncorrectable; the failing blocks are named in the error."
   [data-blocks error-correction-blocks parity-count]
-  (let [mismatched-blocks
+  (let [corrections
+        (mapv (fn [data-block parity-block]
+                (try
+                  (reed-solomon/correct-codewords
+                   (into data-block parity-block)
+                   parity-count)
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default)
+                         error
+                    (when-not (ex-data error) (throw error))
+                    nil)))
+              data-blocks
+              error-correction-blocks)
+        uncorrectable-blocks
         (into []
-              (keep-indexed
-               (fn [block-index [data-block received-parity]]
-                 (when-not (= received-parity
-                              (reed-solomon/error-correction-codewords
-                               data-block
-                               parity-count))
-                   block-index)))
-              (map vector data-blocks error-correction-blocks))]
-    (when (seq mismatched-blocks)
-      (fail! :corrupted-message
-             "Received parity disagrees with recomputed Reed-Solomon parity"
-             {:reason :error-correction-not-implemented
-              :mismatched-block-indexes mismatched-blocks
+              (keep-indexed (fn [block-index correction]
+                              (when-not correction block-index)))
+              corrections)]
+    (when (seq uncorrectable-blocks)
+      (fail! :uncorrectable-message
+             "At least one block carries more errors than its parity corrects"
+             {:reason :error-capacity-exceeded
+              :uncorrectable-block-indexes uncorrectable-blocks
+              :error-capacity-per-block (quot parity-count 2)
               :block-count (count data-blocks)}
-             "7.5.2"))))
+             "7.5.2"))
+    {:data-blocks (mapv (fn [data-block {:keys [codewords]}]
+                          (subvec codewords 0 (count data-block)))
+                        data-blocks
+                        corrections)
+     :corrected-error-count (transduce (map :error-count) + corrections)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Bit-stream parsing (Clause 7.4)
@@ -365,6 +383,25 @@
              "6.3.1"))
     version))
 
+(defn- reconstruct-matrix
+  "Re-encodes corrected data codewords into the pristine module matrix.
+
+  Because the version, level, and mask are all recovered during decoding,
+  the encoder's own stages rebuild the exact matrix the original encoder
+  produced — this is the repaired symbol, generated rather than patched."
+  [data-codewords version error-correction-level mask-reference]
+  (let [{:keys [message-bits]}
+        (message/construct-final-message
+         data-codewords version error-correction-level)
+        placed (:matrix (matrix/place-data
+                         (matrix/function-matrix version)
+                         message-bits))]
+    (matrix/final-bit-matrix
+     (matrix/resolve-metadata
+      (matrix/apply-data-mask placed mask-reference)
+      error-correction-level
+      mask-reference))))
+
 (defn decode-matrix
   "Decodes a resolved 0/1 ordinary-QR module matrix back to its payload.
 
@@ -374,13 +411,17 @@
        :error-correction-level :m
        :mask-reference 3
        :format-hamming-distance 0
+       :corrected-error-count 0
        :mode :numeric
        :character-count 35
-       :payload \"867...\"}
+       :payload \"867...\"
+       :reconstructed-matrix [[...]]}
 
-  Byte-mode results additionally carry `:octets`; `:payload` is then the
-  ISO/IEC 8859-1 reading of those octets. Failures are structured `ex-info`
-  values; see the namespace docstring for the exploration's honest limits."
+  Up to ⌊parity/2⌋ damaged codewords per block are Reed-Solomon-corrected
+  and counted in `:corrected-error-count`; `:reconstructed-matrix` is the
+  pristine symbol re-encoded from the corrected codewords. Byte-mode results
+  additionally carry `:octets`; `:payload` is then the ISO/IEC 8859-1
+  reading of those octets. Failures are structured `ex-info` values."
   [bit-matrix]
   (when-not (render/binary-square-matrix? bit-matrix)
     (fail! :invalid-matrix
@@ -408,29 +449,38 @@
                                  (subvec message-codewords
                                          data-codeword-count)
                                  (vec (repeat (count lengths)
-                                              parity-count)))]
-    (verify-error-correction! data-blocks
-                              error-correction-blocks
-                              parity-count)
+                                              parity-count)))
+        {corrected-blocks :data-blocks
+         :keys [corrected-error-count]}
+        (correct-blocks data-blocks error-correction-blocks parity-count)
+        data-codewords (into [] (mapcat identity) corrected-blocks)]
     (merge {:version version
             :error-correction-level error-correction-level
             :mask-reference mask-reference
-            :format-hamming-distance hamming-distance}
-           (parse-data-codewords
-            (into [] (mapcat identity) data-blocks)
-            version))))
+            :format-hamming-distance hamming-distance
+            :corrected-error-count corrected-error-count
+            :reconstructed-matrix (reconstruct-matrix
+                                   data-codewords
+                                   version
+                                   error-correction-level
+                                   mask-reference)}
+           (parse-data-codewords data-codewords version))))
 
 (s/def ::format-hamming-distance
   (s/int-in 0 (inc format-information-tolerance)))
 (s/def ::mode #{:numeric :alphanumeric :byte})
 (s/def ::character-count pos-int?)
 (s/def ::payload (s/and string? seq))
+(s/def ::corrected-error-count nat-int?)
+(s/def ::reconstructed-matrix ::render/binary-square-matrix)
 
 (s/def ::decoded-symbol
   (s/keys :req-un [::parameters/version
                    ::parameters/error-correction-level
                    ::parameters/mask-reference
                    ::format-hamming-distance
+                   ::corrected-error-count
+                   ::reconstructed-matrix
                    ::mode
                    ::character-count
                    ::payload]
