@@ -17,6 +17,16 @@
     org.clojure/test.check {:mvn/version "1.1.3"}}
    :main-opts ["-m" "qrity.node-test-runner"]}
 
+  :site
+  {:extra-paths ["site/src"]
+   :extra-deps
+   {org.clojure/clojurescript {:mvn/version "1.12.145"}}
+   :main-opts ["-m" "cljs.main"
+               "--optimizations" "advanced"
+               "--output-dir" "target/site"
+               "--output-to" "site/public/main.js"
+               "--compile" "qrity.site"]}
+
   :decode-image
   {:extra-paths ["test"]
    :main-opts ["-m" "qrity.decode-runner"]}

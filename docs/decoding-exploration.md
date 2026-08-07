@@ -33,16 +33,18 @@ In scope for the exploration:
 - A platform boundary at *decoded pixels*: the platform (JVM `ImageIO`, browser
   Canvas, Node) turns PNG/JPEG bytes into pixel values; everything after that is
   pure `.cljc` code.
-- Rotated, perspective-distorted, unevenly lit, and locally damaged pictures of
-  one symbol — evidenced so far with synthetic distortions of rendered rasters,
-  not yet with photographs.
+- Rotated, perspective-distorted, mirror-imaged, reflectance-reversed
+  (light-on-dark), unevenly lit, contrast-compressed, and locally damaged
+  pictures of one symbol — evidenced with synthetic distortions of rendered
+  rasters and with the ImageMagick mangling harness
+  (`scripts/mangle_and_verify.py`), not yet with photographs.
 
 Explicit non-goals, now and likely permanently:
 
 - **Re-implementing image or video codecs.** PNG/JPEG decoding is a solved
   platform capability with no first-principles value for this project. The
   first-principles claim starts at the luminance plane, not at the DEFLATE stream.
-- Micro QR, Kanji mode, Structured Append, mirrored symbols — all outside the
+- Micro QR, Kanji mode, Structured Append — all outside the
   encoder's subset too. ECI is supported only for the two designators the
   encoder emits — 000003 (default ISO/IEC 8859-1) and 000026 (UTF-8, via
   `qrity.text`'s pure transcoder); other designators are refused, octets
@@ -182,6 +184,18 @@ applied.
 - Segmentation and ECI: planner round trips over mixed payloads (byte+numeric
   splits, UTF-8 with ECI 000026, emoji), planned bits never exceeding naive
   all-Byte encoding, and exact minimal version selection.
+- Mirroring, reversal, and metadata: mirror-imaged, light-on-dark, and
+  combined mirror+inversion+rotation pictures decode with the conditions
+  reported; the renderers' inverted PBM output reads back; the 18-bit
+  version-information blocks confirm the dimension, tolerate three damaged
+  modules, refuse a contradicting declaration, and degrade to `:unreadable`
+  without losing the message.
+- Cross-implementation (`scripts/mangle_and_verify.py`): 50 pictures —
+  symbols from this encoder and from qrencode, mangled by ImageMagick with
+  blur, Gaussian noise, pixelation, rotation, shear, contrast crush,
+  dimming, quiet-zone shaving, and overlay blots — all read by this decoder
+  (with Reed–Solomon repairs reported), and this encoder's symbols
+  (including ECI 000026) all read by zbar and OpenCV.
 - The inspector (`qrity.inspect`): the census accounts for every module of the
   symbol; reassembling the data bit stream from per-module explanations
   reproduces the planner's bit vector bit for bit.
@@ -202,14 +216,14 @@ with defaults:
 | Decision gate | Current status | Evidence needed | Close before |
 |---|---|---|---|
 | Reed–Solomon correction algorithm | Revised and closed for now: Sugiyama's Euclidean solver replaced Berlekamp–Massey when erasures arrived — one stopping rule covers errors and erasures uniformly. Measured cost of the trade (JVM, 2026-08-07): both are O(t²) after the shared syndrome pass; on damaged blocks the Euclidean solver runs 2.2× slower at the smallest QR parity (136 vs 61 µs) narrowing to 1.1× at the largest (933 vs 835 µs), and clean blocks — the common case — short-circuit identically at the syndrome check. Negligible against image-stage costs; were RS speed ever to matter, the shared bit-loop `gf-multiply` (table lookups would speed syndromes, solver, and parity generation together) is the lever, not the solver choice. Erasures flow in from unknown (nil) modules | Worked ISO examples; erasure sources beyond sampling (caller-declared covered regions are supported, detector-declared ones are not yet inferred) | Claiming the full theoretical damage tolerance on photographs |
-| Binarization for photographs | Block-local black points (ZXing-hybrid shape) decided; evidenced on synthetic gradients only | Corpus of real photographs — sensor noise, blur, specular highlights | Any real-photograph robustness claim |
+| Binarization for photographs | Block-local black points (ZXing-hybrid shape) decided, with one revision the mangling harness forced: a flat block's black point is its minimum less a quarter of the global luminance range, because ZXing's min/2 misclassifies contrast-compressed pictures where half of "light" lands below "dark" | Corpus of real photographs — sensor noise, blur, specular highlights beyond the harness's synthetic manglings | Any real-photograph robustness claim |
 | Finder detection and perspective sampling | Run scanning, cross-checks, axis-run module measurement, and per-cell sampling over the full located alignment grid decided; evidenced on synthetic distortions including non-projective curvature | Real-photo corpus; comparison with reference decoders | Any real-photograph robustness claim |
 | Version cross-check via the 18-bit version-information blocks | Version still derived from measured dimension only | Damaged-symbol corpus where dimension estimation misleads | Error-corrected decoding of Versions ≥ 7 under distortion |
 | Multiple symbols in one picture | Single-symbol assumption; extra finder candidates are pruned, not grouped | Multi-symbol grouping design and corpus | Claiming multi-symbol support |
-| Message-structure strictness | Multi-segment and ECI 000003/000026 parsing decided; the end-of-message test is the exact re-encode padding check, so non-canonical padding is still refused | Interoperability evidence from symbols produced by other encoders (which may pad or terminate differently) | Decoding third-party symbols |
+| Message-structure strictness | Multi-segment and ECI 000003/000026 parsing decided; the end-of-message test is the exact re-encode padding check, so non-canonical padding is still refused. First interop evidence: every qrencode symbol in the mangling harness decodes, so at least libqrencode's padding is canonical | Broader encoder corpus (ZXing, mobile wallets, label printers) | Decoding arbitrary third-party symbols |
 | Luminance plane representation (plain vector vs packed platform arrays behind the same seam) | Plain vector decided for the exploration | Profiling on realistic image sizes in both runtimes | Optimizing; the seam itself should hold |
-| Browser/Node image acquisition adapters | JVM `ImageIO` only; Canvas `ImageData` sketched | A ClojureScript host with image access in CI | Claiming ClojureScript picture decoding |
-| Mirror-image and light-on-dark symbols | Out of scope | Standard Clause 6 review and corpus evidence | Any robustness claim |
+| Browser/Node image acquisition adapters | JVM `ImageIO` and browser Canvas (`qrity.image-canvas`, exercised in the Node suite through synthetic `ImageData` and interactively by the demonstration site under `site/`) | Real-browser evidence in CI beyond the synthetic `ImageData` test | Claiming production browser support |
+| Mirror-image and light-on-dark symbols | Decided and closed: mirroring retries the transposed sample (`:mirrored?`), reflectance reversal retries the inverted bitmap (`:inverted?`), and the renderers emit light-on-dark rasters whose reversal covers the quiet zone | — | — |
 
 ## Definition of done for a first accepted decoder
 

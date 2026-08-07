@@ -8,6 +8,7 @@
             [qrity.decode-test]
             [qrity.encode-test]
             [qrity.generalized-encode-test]
+            [qrity.image-canvas-test]
             [qrity.image-test]
             [qrity.inspect-test]
             [qrity.mask-test]
@@ -45,6 +46,7 @@
                   'qrity.decode-test
                   'qrity.encode-test
                   'qrity.generalized-encode-test
+                  'qrity.image-canvas-test
                   'qrity.image-test
                   'qrity.inspect-test
                   'qrity.mask-test
