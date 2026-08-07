@@ -10,13 +10,6 @@
   (zipmap alphanumeric-repertoire (range)))
 
 (defn- fail!
-  [error message data]
-  (throw
-   (ex-info
-    message
-    (assoc data :qrity/error error :clause "7.4.4"))))
-
-(defn- byte-fail!
   [error message data clause]
   (throw
    (ex-info
@@ -30,13 +23,15 @@
            "Alphanumeric payload must be a non-empty Table 5 string"
            {:mode :alphanumeric
             :payload payload
-            :reason :non-string-payload}))
+            :reason :non-string-payload}
+           "7.4.4"))
   (when (empty? payload)
     (fail! :invalid-alphanumeric-payload
            "Alphanumeric payload must be a non-empty Table 5 string"
            {:mode :alphanumeric
             :payload payload
-            :reason :empty-payload}))
+            :reason :empty-payload}
+           "7.4.4"))
   (when-let [[index character]
              (first
               (keep-indexed
@@ -52,7 +47,8 @@
             :payload payload
             :reason :non-alphanumeric-character
             :character-index index
-            :character (str character)})))
+            :character (str character)}
+           "7.4.4")))
 
 (defn unsigned-integer->bits
   "Returns `width` most-significant-bit-first bits for a non-negative integer."
@@ -95,19 +91,19 @@
 (defn- validate-octets!
   [octets]
   (when-not (vector? octets)
-    (byte-fail! :invalid-byte-payload
-                "Byte payload must be a non-empty vector of octets"
-                {:mode :byte
-                 :octets octets
-                 :reason :non-vector-payload}
-                "7.4.5"))
+    (fail! :invalid-byte-payload
+           "Byte payload must be a non-empty vector of octets"
+           {:mode :byte
+            :octets octets
+            :reason :non-vector-payload}
+           "7.4.5"))
   (when (empty? octets)
-    (byte-fail! :invalid-byte-payload
-                "Byte payload must be a non-empty vector of octets"
-                {:mode :byte
-                 :octets octets
-                 :reason :empty-payload}
-                "7.4.5"))
+    (fail! :invalid-byte-payload
+           "Byte payload must be a non-empty vector of octets"
+           {:mode :byte
+            :octets octets
+            :reason :empty-payload}
+           "7.4.5"))
   (when-let [[index value]
              (first
               (keep-indexed
@@ -115,14 +111,14 @@
                  (when-not (and (int? value) (<= 0 value 255))
                    [index value]))
                octets))]
-    (byte-fail! :invalid-byte-payload
-                "Byte payload contains a value outside the octet range"
-                {:mode :byte
-                 :octets octets
-                 :reason :non-octet
-                 :octet-index index
-                 :value value}
-                "7.4.5")))
+    (fail! :invalid-byte-payload
+           "Byte payload contains a value outside the octet range"
+           {:mode :byte
+            :octets octets
+            :reason :non-octet
+            :octet-index index
+            :value value}
+           "7.4.5")))
 
 (defn iso-8859-1-string->octets
   "Maps a non-empty ISO/IEC 8859-1 string to equal-valued octets.
@@ -133,25 +129,25 @@
   runtimes. This function does not emit an ECI header."
   [text]
   (when-not (string? text)
-    (byte-fail! :invalid-iso-8859-1-text
-                "ISO/IEC 8859-1 text must be a non-empty string"
-                {:mode :byte
-                 :text text
-                 :reason :non-string-text}
-                "6.1, 7.3.2, 7.4.5"))
+    (fail! :invalid-iso-8859-1-text
+           "ISO/IEC 8859-1 text must be a non-empty string"
+           {:mode :byte
+            :text text
+            :reason :non-string-text}
+           "6.1, 7.3.2, 7.4.5"))
   (when (empty? text)
-    (byte-fail! :invalid-iso-8859-1-text
-                "ISO/IEC 8859-1 text must be a non-empty string"
-                {:mode :byte
-                 :text text
-                 :reason :empty-payload}
-                "6.1, 7.3.2, 7.4.5"))
+    (fail! :invalid-iso-8859-1-text
+           "ISO/IEC 8859-1 text must be a non-empty string"
+           {:mode :byte
+            :text text
+            :reason :empty-payload}
+           "6.1, 7.3.2, 7.4.5"))
   (mapv
    (fn [code-unit-index]
      (let [code-unit
            (character-code (.charAt text code-unit-index))]
        (when (> code-unit 0xFF)
-         (byte-fail!
+         (fail!
           :invalid-iso-8859-1-text
           "Text contains a UTF-16 code unit outside ISO/IEC 8859-1"
           {:mode :byte

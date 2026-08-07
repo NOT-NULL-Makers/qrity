@@ -10,17 +10,12 @@
 
 (defn- validate-digits!
   [digits]
-  (when-not (and (string? digits)
-                 (boolean (re-matches #"[0-9]+" digits)))
+  (when-let [reason (parameters/invalid-numeric-payload-reason digits)]
     (fail! :invalid-numeric-payload
            "Numeric payload must be a non-empty ASCII-digit string"
            {:mode :numeric
             :payload digits
-            :reason
-            (cond
-              (not (string? digits)) :non-string-payload
-              (empty? digits) :empty-payload
-              :else :non-ascii-digit)})))
+            :reason reason})))
 
 (defn character-count-bit-width
   "Returns the ordinary-QR Numeric character-count width for `version`."

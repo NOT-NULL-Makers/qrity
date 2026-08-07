@@ -24,6 +24,14 @@
    :alphanumeric :alphanumeric-capacity
    :byte :byte-capacity})
 
+(defn invalid-numeric-payload-reason
+  "Returns nil for a non-empty ASCII-digit string, else a reason keyword."
+  [digits]
+  (cond
+    (not (string? digits)) :non-string-payload
+    (empty? digits) :empty-payload
+    (not (re-matches #"[0-9]+" digits)) :non-ascii-digit))
+
 ;; Canonical transcriptions from ISO/IEC 18004:2015, Table 1, printed
 ;; pp. 19–20 (PDF pp. 27–28): [total codewords, remainder bits].
 (def ^:private table-1-version-facts
@@ -198,7 +206,7 @@
 (s/def ::alphanumeric-capacity pos-int?)
 (s/def ::byte-capacity pos-int?)
 (s/def ::numeric-payload
-  (s/and string? #(boolean (re-matches #"[0-9]+" %))))
+  #(nil? (invalid-numeric-payload-reason %)))
 (s/def ::data-codeword-count pos-int?)
 (s/def ::error-correction-codeword-count pos-int?)
 (s/def ::error-correction-block-count pos-int?)
@@ -523,17 +531,12 @@
   This selector remains isolated from encoding. The provisional generalized Numeric
   encoder invokes it, while the inspectable stage walkthrough remains Version 1-M."
   [digits error-correction-level]
-  (when-not (and (string? digits)
-                 (boolean (re-matches #"[0-9]+" digits)))
+  (when-let [reason (invalid-numeric-payload-reason digits)]
     (fail! :invalid-numeric-payload
            "Numeric payload must be a non-empty ASCII-digit string"
            {:mode :numeric
             :payload digits
-            :reason
-            (cond
-              (not (string? digits)) :non-string-payload
-              (empty? digits) :empty-payload
-              :else :non-ascii-digit)}))
+            :reason reason}))
   (when-not (contains? error-correction-level-set
                        error-correction-level)
     (fail! :invalid-error-correction-level

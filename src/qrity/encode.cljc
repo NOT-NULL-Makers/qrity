@@ -291,26 +291,36 @@
        :digits digits}]
      data-codewords)))
 
-(defn- smallest-alphanumeric-version
-  [payload error-correction-level]
-  ;; Validate before count-based catalogue selection. The catalogue selector
-  ;; intentionally knows counts, not the Table 5 repertoire.
-  (bits/alphanumeric-data-bits payload)
+(defn- smallest-version-for-validated-count
+  "Selects the smallest version, renaming over-capacity count data for the mode."
+  [mode input-count error-correction-level over-capacity-message count-key]
   (try
     (parameters/smallest-version-for-count
-     :alphanumeric
-     (count payload)
+     mode
+     input-count
      error-correction-level)
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
       (let [data (ex-data error)]
         (if (= :payload-too-large (:qrity/error data))
           (throw
            (ex-info
-            "Alphanumeric payload exceeds ordinary QR Version 40 capacity"
+            over-capacity-message
             (-> data
-                (assoc :character-count (count payload))
+                (assoc count-key input-count)
                 (dissoc :input-count))))
           (throw error))))))
+
+(defn- smallest-alphanumeric-version
+  [payload error-correction-level]
+  ;; Validate before count-based catalogue selection. The catalogue selector
+  ;; intentionally knows counts, not the Table 5 repertoire.
+  (bits/alphanumeric-data-bits payload)
+  (smallest-version-for-validated-count
+   :alphanumeric
+   (count payload)
+   error-correction-level
+   "Alphanumeric payload exceeds ordinary QR Version 40 capacity"
+   :character-count))
 
 (defn- encode-alphanumeric*
   [payload error-correction-level]
@@ -334,21 +344,12 @@
   ;; Validate the portable octet contract before count-based catalogue
   ;; selection. The catalogue intentionally knows counts, not payload shape.
   (bits/byte-data-bits octets)
-  (try
-    (parameters/smallest-version-for-count
-     :byte
-     (count octets)
-     error-correction-level)
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
-      (let [data (ex-data error)]
-        (if (= :payload-too-large (:qrity/error data))
-          (throw
-           (ex-info
-            "Byte payload exceeds ordinary QR Version 40 capacity"
-            (-> data
-                (assoc :octet-count (count octets))
-                (dissoc :input-count))))
-          (throw error))))))
+  (smallest-version-for-validated-count
+   :byte
+   (count octets)
+   error-correction-level
+   "Byte payload exceeds ordinary QR Version 40 capacity"
+   :octet-count))
 
 (defn- encode-byte*
   [octets error-correction-level]
