@@ -218,8 +218,8 @@
               (:remainder-bit-count profile))
            (count (filter #{:unset} (mapcat identity value))))
         (= value (canonical-function-matrix version))))
-     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
-       false))))
+     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+       (validation/rejected error)))))
 
 (s/def ::function-matrix function-matrix?)
 

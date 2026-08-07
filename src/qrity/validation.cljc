@@ -21,3 +21,14 @@
       (binding [qrity.validation/*canonical-checks?* true]
         (matrix/place-data template message-bits))"
   false)
+
+(defn rejected
+  "Returns false for the library's own `ex-info` failures; rethrows others.
+
+  Boolean predicates use this in their catch clause so that a structured
+  validation failure reads as \"not valid\" while a genuine defect inside the
+  predicate still surfaces as an error."
+  [error]
+  (if (ex-data error)
+    false
+    (throw error)))

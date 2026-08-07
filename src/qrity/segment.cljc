@@ -2,7 +2,8 @@
   "Pure selected-profile single-segment data and codeword construction."
   (:require [clojure.spec.alpha :as s]
             [qrity.bits :as bits]
-            [qrity.parameters :as parameters]))
+            [qrity.parameters :as parameters]
+            [qrity.validation :as validation]))
 
 (defn- fail!
   [error message data]
@@ -182,8 +183,8 @@
   (try
     (selected-profile digits version error-correction-level)
     true
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (defn alphanumeric-request?
   [{:keys [payload version error-correction-level]}]
@@ -191,16 +192,16 @@
     (selected-alphanumeric-profile
      payload version error-correction-level)
     true
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (defn byte-request?
   [{:keys [octets version error-correction-level]}]
   (try
     (selected-byte-profile octets version error-correction-level)
     true
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (s/def ::numeric-request
   (s/and

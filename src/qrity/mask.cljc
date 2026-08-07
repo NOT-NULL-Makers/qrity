@@ -242,8 +242,8 @@
      (matrix/placement-matches-message-bits?
       placement
       (:message-bits final-message)))
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (defn- candidate-request?
   [{:keys [mask-reference] :as request}]

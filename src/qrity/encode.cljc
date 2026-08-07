@@ -7,7 +7,8 @@
             [qrity.parameters :as parameters]
             [qrity.reed-solomon :as reed-solomon]
             [qrity.segment :as segment]
-            [qrity.spec :as qspec]))
+            [qrity.spec :as qspec]
+            [qrity.validation :as validation]))
 
 (def clause-7-1-stage-order
   qspec/clause-7-1-stage-order)
@@ -406,8 +407,8 @@
                    (= dimension (count row))
                    (every? #{0 1} row)))
             matrix-value))))))
-    (catch #?(:clj Exception :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (s/def ::numeric-symbol-structure numeric-symbol-structure?)
 
@@ -450,8 +451,8 @@
                (= dimension (count row))
                (every? #{0 1} row)))
             matrix-value))))))
-    (catch #?(:clj Exception :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (s/def ::alphanumeric-symbol-structure
   alphanumeric-symbol-structure?)
@@ -495,8 +496,8 @@
                (= dimension (count row))
                (every? #{0 1} row)))
             matrix-value))))))
-    (catch #?(:clj Exception :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (s/def ::byte-symbol-structure byte-symbol-structure?)
 
@@ -505,8 +506,8 @@
   [digits error-correction-level symbol]
   (try
     (= symbol (encode-numeric* digits error-correction-level))
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (defn alphanumeric-symbol-matches?
   "Checks exact provenance of an Alphanumeric symbol for explicit inputs."
@@ -515,8 +516,8 @@
     (= symbol
        (encode-alphanumeric*
         payload error-correction-level))
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (defn byte-symbol-matches?
   "Checks exact provenance of a Byte symbol for explicit octets."
@@ -524,8 +525,8 @@
   (try
     (= symbol
        (encode-byte* octets error-correction-level))
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (defn iso-8859-1-symbol-matches?
   "Checks Byte-symbol provenance for explicit default-ECI text."
@@ -535,8 +536,8 @@
      (bits/iso-8859-1-string->octets text)
      error-correction-level
      symbol)
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (defn encode-numeric
   "Generates one provisional ordinary-QR Numeric symbol.

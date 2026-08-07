@@ -5,7 +5,8 @@
   (:require [clojure.spec.alpha :as s]
             [qrity.bits :as bits]
             [qrity.parameters :as parameters]
-            [qrity.reed-solomon :as reed-solomon]))
+            [qrity.reed-solomon :as reed-solomon]
+            [qrity.validation :as validation]))
 
 (defn codeword?
   [value]
@@ -280,8 +281,8 @@
            (= (:message-bits value)
               (into (bits/codewords->bits message-codewords)
                     remainder-bits))))
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (defn final-message-request?
   [{:keys [data-codewords version error-correction-level]}]
@@ -291,8 +292,8 @@
       (and (codeword-vector? data-codewords)
            (= (:data-codeword-count profile)
               (count data-codewords))))
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _
-      false)))
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+      (validation/rejected error))))
 
 (s/def ::final-message final-message?)
 (s/def ::final-message-request
