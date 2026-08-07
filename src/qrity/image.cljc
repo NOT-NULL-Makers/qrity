@@ -171,17 +171,13 @@
   Row-major construction means a block's above, left, and diagonal
   neighbors are already present at fixed index offsets — profiled at 37%
   of a whole decode when this was a map keyed by [row column] vectors."
-  [luminance width height block-columns block-rows flat-margin]
+  [block-statistics-vector block-columns flat-margin]
   (reduce
    (fn [black-points block-index]
      (let [block-row (quot block-index block-columns)
            block-column (rem block-index block-columns)
-           x-offset (min (* block-column adaptive-block-size)
-                         (- width adaptive-block-size))
-           y-offset (min (* block-row adaptive-block-size)
-                         (- height adaptive-block-size))
-           [sum darkest lightest] (block-statistics
-                                   luminance width x-offset y-offset)
+           [sum darkest lightest] (nth block-statistics-vector
+                                       block-index)
            average (quot sum
                          (* adaptive-block-size adaptive-block-size))
            black-point
@@ -199,7 +195,7 @@
                  assumed)))]
        (conj black-points black-point)))
    []
-   (range (* block-rows block-columns))))
+   (range (count block-statistics-vector))))
 
 (defn- clamp
   [value lower upper]
@@ -237,13 +233,35 @@
   (if (or (< width minimum-adaptive-size)
           (< height minimum-adaptive-size))
     (binarize image)
-    (let [[darkest lightest] (require-contrast! luminance)
-          block-columns (quot (+ width adaptive-block-size -1)
+    (let [block-columns (quot (+ width adaptive-block-size -1)
                               adaptive-block-size)
           block-rows (quot (+ height adaptive-block-size -1)
                            adaptive-block-size)
+          ;; The blocks tile every pixel, so the global luminance range
+          ;; folds out of the per-block statistics — no separate pass.
+          statistics
+          (mapv (fn [block-index]
+                  (block-statistics
+                   luminance width
+                   (min (* (rem block-index block-columns)
+                           adaptive-block-size)
+                        (- width adaptive-block-size))
+                   (min (* (quot block-index block-columns)
+                           adaptive-block-size)
+                        (- height adaptive-block-size))))
+                (range (* block-rows block-columns)))
+          darkest (reduce (fn [darkest [_ block-darkest _]]
+                            (min darkest block-darkest))
+                          255 statistics)
+          lightest (reduce (fn [lightest [_ _ block-lightest]]
+                             (max lightest block-lightest))
+                           0 statistics)
+          _ (when (< (- lightest darkest) minimum-contrast)
+              (fail! :insufficient-contrast
+                     "The luminance range is too narrow to separate dark modules"
+                     {:darkest darkest :lightest lightest}))
           black-points (block-black-points
-                        luminance width height block-columns block-rows
+                        statistics block-columns
                         (quot (- lightest darkest) 4))
           bits (plane/blank (* width height))]
       ;; Fill block by block so each pixel pays plane access, not a
