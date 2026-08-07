@@ -18,7 +18,8 @@
   `qrity.image`; failures are structured ex-info values in the house style."
   (:require [clojure.spec.alpha :as s]
             [qrity.decode :as decode]
-            [qrity.image :as image]))
+            [qrity.image :as image]
+            [qrity.parameters :as parameters]))
 
 (defn- fail!
   [error message data]
@@ -507,52 +508,144 @@
                                 :bottom-left bottom-left}}))
     (/ (reduce + crossings) (count crossings))))
 
+(defn- alignment-grid
+  "Locates the version's full alignment-pattern grid.
+
+  Every axis crossing except the three finder corners is searched near its
+  position predicted by the global transform; a node that is not found
+  keeps the prediction, so local refinement degrades gracefully to the
+  global geometry."
+  [bitmap global-transform axes module-size known-nodes]
+  (let [first-axis (first axes)
+        last-axis (peek axes)
+        finder-corners #{[first-axis first-axis]
+                         [first-axis last-axis]
+                         [last-axis first-axis]}
+        located
+        (vec
+         (for [row-axis axes
+               col-axis axes]
+           (let [node [row-axis col-axis]
+                 predicted (transform-point global-transform
+                                            (+ col-axis 0.5)
+                                            (+ row-axis 0.5))
+                 found (or (get known-nodes node)
+                           (when-not (contains? finder-corners node)
+                             (find-alignment-pattern
+                              bitmap predicted module-size)))]
+             [node (or found predicted) (some? found)])))]
+    {:axes axes
+     :nodes (into {}
+                  (map (fn [[node point _]] [node point]))
+                  located)
+     :located-node-count (count (filter peek located))
+     :searched-node-count (- (* (count axes) (count axes))
+                             (count finder-corners))}))
+
+(defn- axis-interval-index
+  "Index of the axis interval containing a module coordinate, clamped."
+  [axes coordinate]
+  (loop [index (- (count axes) 2)]
+    (cond
+      (neg? index) 0
+      (<= (+ (nth axes index) 0.5) coordinate) index
+      :else (recur (dec index)))))
+
+(defn- grid-sample-point
+  "Module-space→pixel mapping through per-cell perspective transforms.
+
+  Each cell between neighboring alignment axes gets its own transform from
+  its four corner nodes, so smooth non-projective distortion — lens
+  curvature, gentle surface bend — is absorbed piecewise where a single
+  global homography cannot follow it."
+  [{:keys [axes nodes]}]
+  (let [cell-transform
+        (memoize
+         (fn [row-index column-index]
+           (let [row-a (nth axes row-index)
+                 row-b (nth axes (inc row-index))
+                 column-a (nth axes column-index)
+                 column-b (nth axes (inc column-index))]
+             (perspective-transform
+              [[(+ column-a 0.5) (+ row-a 0.5)]
+               [(+ column-b 0.5) (+ row-a 0.5)]
+               [(+ column-b 0.5) (+ row-b 0.5)]
+               [(+ column-a 0.5) (+ row-b 0.5)]]
+              [(get nodes [row-a column-a])
+               (get nodes [row-a column-b])
+               (get nodes [row-b column-b])
+               (get nodes [row-b column-a])]))))]
+    (fn [u v]
+      (transform-point (cell-transform (axis-interval-index axes v)
+                                       (axis-interval-index axes u))
+                       u
+                       v))))
+
 (defn locate-symbol
   "Finds one QR symbol in a bitmap and returns its sampling geometry.
 
-      {:transform {...}            ; module coordinates → pixels
+      {:transform {...}            ; global module coordinates → pixels
        :dimension 25
        :module-size 4.1
        :finder-patterns {:top-left {...} :top-right {...} :bottom-left {...}}
-       :alignment-pattern [x y]}   ; when the version has one and it was found
+       :alignment-pattern [x y]    ; bottom-right anchor, when found
+       :alignment-grid {...}}      ; full node grid for versions that have one
 
   Rotation and perspective are absorbed by the transform rather than
-  corrected in the image."
+  corrected in the image; versions with alignment patterns additionally get
+  a per-cell grid that follows smooth non-projective distortion."
   [bitmap]
   (let [{:keys [top-left top-right bottom-left] :as finder-patterns}
         (order-finder-patterns
          (select-finder-patterns (find-finder-patterns bitmap)))
         module-size (measured-module-size bitmap finder-patterns)
         dimension (estimated-dimension
-                   top-left top-right bottom-left module-size)]
+                   top-left top-right bottom-left module-size)
+        version (quot (- dimension 17) 4)
+        axes (:alignment-pattern-centers
+              (parameters/ordinary-qr-parameters version :l))
+        {:keys [transform alignment-pattern] :as global}
+        (module-space-transform
+         bitmap top-left top-right bottom-left dimension module-size)]
     (merge {:dimension dimension
             :module-size module-size
             :finder-patterns {:top-left top-left
                               :top-right top-right
                               :bottom-left bottom-left}}
-           (module-space-transform
-            bitmap top-left top-right bottom-left dimension module-size))))
+           global
+           (when (<= 2 (count axes))
+             (let [last-axis (peek axes)]
+               {:alignment-grid
+                (alignment-grid
+                 bitmap transform axes module-size
+                 (if alignment-pattern
+                   {[last-axis last-axis] alignment-pattern}
+                   {}))})))))
 
 (defn sample-grid
   "Samples the pixel under each module center into a module matrix.
 
-  A module whose center falls outside the picture samples as nil — an
-  unknown module the decoder treats as a Reed-Solomon erasure — rather
-  than failing the whole symbol."
-  [{:keys [width height] :as bitmap} {:keys [transform dimension]}]
-  (mapv
-   (fn [row]
-     (mapv
-      (fn [column]
-        (let [[x y] (transform-point transform
-                                     (+ column 0.5)
-                                     (+ row 0.5))
-              pixel-x (int (Math/floor x))
-              pixel-y (int (Math/floor y))]
-          (when (and (< -1 pixel-x width) (< -1 pixel-y height))
-            (pixel bitmap pixel-x pixel-y))))
-      (range dimension)))
-   (range dimension)))
+  Sampling goes through the per-cell alignment grid when the located
+  symbol has one, and the global transform otherwise. A module whose
+  center falls outside the picture samples as nil — an unknown module the
+  decoder treats as a Reed-Solomon erasure — rather than failing the
+  whole symbol."
+  [{:keys [width height] :as bitmap}
+   {:keys [transform dimension alignment-grid]}]
+  (let [sample-point (if alignment-grid
+                       (grid-sample-point alignment-grid)
+                       (fn [u v] (transform-point transform u v)))]
+    (mapv
+     (fn [row]
+       (mapv
+        (fn [column]
+          (let [[x y] (sample-point (+ column 0.5) (+ row 0.5))
+                pixel-x (int (Math/floor x))
+                pixel-y (int (Math/floor y))]
+            (when (and (< -1 pixel-x width) (< -1 pixel-y height))
+              (pixel bitmap pixel-x pixel-y))))
+        (range dimension)))
+     (range dimension))))
 
 (defn decode-bitmap
   "Locates, samples, and decodes one QR symbol from a binarized bitmap.

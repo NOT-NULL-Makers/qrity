@@ -1,5 +1,8 @@
 (ns qrity.scan-test
-  (:require [qrity.encode :as encode]
+  (:require [qrity.decode]
+            [qrity.detect]
+            [qrity.encode :as encode]
+            [qrity.image]
             [qrity.image-fixtures :as fixtures]
             [qrity.scan :as scan]
             #?(:clj [clojure.test :refer [deftest is testing]]
@@ -92,6 +95,42 @@
                   (fixtures/shade-image))
         decoded (scan/decode-luminance-image messy)]
     (is (= "https://example.com/messy?p=1" (:payload decoded)))))
+
+(def curved-payload (apply str (take 450 (cycle "0123456789"))))
+
+(defn- curved-picture
+  []
+  (let [{:keys [matrix]} (encode/encode-numeric curved-payload :m)]
+    {:matrix matrix
+     :picture (fixtures/bend-image
+               (fixtures/matrix->luminance-image matrix 6 4)
+               10)}))
+
+(deftest decodes-a-curved-picture-through-the-alignment-grid
+  (let [{:keys [picture]} (curved-picture)
+        decoded (scan/decode-luminance-image picture)]
+    (is (= curved-payload (:payload decoded)))
+    (is (= 10 (:version decoded)))
+    (is (= 6 (get-in decoded
+                     [:detection :alignment-grid :located-node-count]))
+        "every alignment pattern must anchor the sampling grid")))
+
+(deftest the-alignment-grid-earns-its-place-under-curvature
+  ;; The same curved picture through the global homography alone must
+  ;; fail: the grid is not redundant refinement but the difference
+  ;; between reading and not reading a bent symbol.
+  (let [{:keys [picture]} (curved-picture)
+        bitmap (qrity.image/binarize-adaptive picture)
+        located (qrity.detect/locate-symbol bitmap)
+        global-only (dissoc located :alignment-grid)]
+    (is (= :uncorrectable-message
+           (:qrity/error
+            (exception-data
+             #(qrity.decode/decode-matrix
+               (qrity.detect/sample-grid bitmap global-only))))))
+    (is (= curved-payload
+           (:payload (qrity.decode/decode-matrix
+                      (qrity.detect/sample-grid bitmap located)))))))
 
 (deftest fails-structurally-when-no-symbol-is-present
   (is (= :no-finder-patterns-found

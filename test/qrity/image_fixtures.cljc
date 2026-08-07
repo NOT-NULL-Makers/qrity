@@ -100,6 +100,19 @@
      image new-width new-height
      #(detect/transform-point inverse %1 %2))))
 
+(defn bend-image
+  "Bows the image vertically like a photograph of curved paper.
+
+  Rows bow upward by `amplitude` pixels at the horizontal center and stay
+  put at the edges. Not a projective map: a single homography cannot
+  follow it, which is exactly what alignment-grid sampling exists to
+  absorb — while the corners, where dimension is measured, barely move."
+  [{:keys [width height] :as image} amplitude]
+  (transform-image
+   image width height
+   (fn [x y]
+     [x (+ y (* amplitude (Math/sin (* Math/PI (/ x width)))))])))
+
 (defn shade-image
   "Darkens the image toward its left edge with a linear lighting gradient.
 
