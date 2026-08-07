@@ -6,6 +6,7 @@
             [qrity.byte-encode-test]
             [qrity.byte-segment-test]
             [qrity.decode-test]
+            [qrity.detect-test]
             [qrity.encode-test]
             [qrity.generalized-encode-test]
             [qrity.image-io-test]
@@ -34,6 +35,7 @@
                         'qrity.byte-encode-test
                         'qrity.byte-segment-test
                         'qrity.decode-test
+                        'qrity.detect-test
                         'qrity.encode-test
                         'qrity.generalized-encode-test
                         'qrity.image-io-test

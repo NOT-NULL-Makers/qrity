@@ -34,18 +34,19 @@
 ;; ---------------------------------------------------------------------------
 ;; Run-ratio matching
 
-(defn- pattern-match?
-  "True when runs match the unit pattern within half a module per unit."
-  [runs unit-pattern]
-  (let [total (reduce + runs)
-        unit-total (reduce + unit-pattern)]
-    (and (>= total unit-total)
-         (let [module (/ total (double unit-total))
-               maximum-variance (/ module 2.0)]
-           (every? (fn [[run units]]
-                     (< (abs (- (* units module) run))
-                        (* units maximum-variance)))
-                   (map vector runs unit-pattern))))))
+(defn- finder-ratio?
+  "True when five runs match 1:1:3:1:1 within half a module per unit.
+
+  Exact integer form of |run − units·total/7| < units·total/14, both sides
+  scaled by 14, so the hot scan pays no floating point."
+  [r0 r1 r2 r3 r4]
+  (let [total (+ r0 r1 r2 r3 r4)]
+    (and (>= total 7)
+         (< (abs (- (* 14 r0) (* 2 total))) total)
+         (< (abs (- (* 14 r1) (* 2 total))) total)
+         (< (abs (- (* 14 r2) (* 6 total))) (* 3 total))
+         (< (abs (- (* 14 r3) (* 2 total))) total)
+         (< (abs (- (* 14 r4) (* 2 total))) total))))
 
 (defn- row-runs
   [{:keys [width] :as bitmap} y]
@@ -93,12 +94,12 @@
         middle-after (walk (inc center) 1 1)
         light-after (walk (+ center 1 middle-after) 1 0)
         dark-after (walk (+ center 1 middle-after light-after) 1 1)
-        counts [dark-before light-before
-                (+ middle-before middle-after)
-                light-after dark-after]
-        total (reduce + counts)]
-    (when (and (every? pos? counts)
-               (pattern-match? counts [1 1 3 1 1])
+        middle (+ middle-before middle-after)
+        total (+ dark-before light-before middle light-after dark-after)]
+    (when (and (pos? dark-before) (pos? light-before) (pos? middle)
+               (pos? light-after) (pos? dark-after)
+               (finder-ratio? dark-before light-before middle
+                              light-after dark-after)
                ;; The re-measured total must resemble the originating one.
                (< (* 5 (abs (- total pattern-total))) (* 2 pattern-total)))
       ;; The run spans L pixels from its first index, so its continuous
@@ -110,18 +111,52 @@
 ;; ---------------------------------------------------------------------------
 ;; Finder-pattern search
 
-(defn- window-candidate
-  "Confirms one row-scan window by vertical and horizontal cross-checks."
-  [bitmap window y]
-  (let [middle (nth window 2)
-        total (reduce + (map :length window))
-        center-x (int (+ (:start middle) (/ (:length middle) 2.0)))]
-    (when-let [center-y (cross-check bitmap :vertical center-x y total)]
-      (when-let [refined-x (cross-check bitmap :horizontal
-                                        (int center-y) center-x total)]
-        {:x refined-x
-         :y center-y
-         :module-size (/ total 7.0)}))))
+(defn- confirm-candidate
+  "Confirms one row-scan hit by vertical and horizontal cross-checks."
+  [bitmap center-x y total]
+  (when-let [center-y (cross-check bitmap :vertical center-x y total)]
+    (when-let [refined-x (cross-check bitmap :horizontal
+                                      (int center-y) center-x total)]
+      {:x refined-x
+       :y center-y
+       :module-size (/ total 7.0)})))
+
+(defn row-finder-hits
+  "One sliding-window pass over a row: [center-x total] per ratio match.
+
+  The five most recent completed run lengths ride as loop variables — no
+  run maps, no windows — and the 1:1:3:1:1 test fires whenever a dark run
+  completes (at a dark→light boundary or the row's end), which is exactly
+  when a candidate window's last run closes."
+  [{:keys [width bits]} y]
+  ;; The plane and row offset are hoisted out of the loop: one accessor
+  ;; call per pixel, no per-pixel map destructuring.
+  (let [row-start (* y width)
+        hit (fn [found boundary-x c1 c2 c3 c4 completed]
+              (let [center-x (+ (- boundary-x completed c4 c3)
+                                (quot c3 2))
+                    total (+ c1 c2 c3 c4 completed)]
+                (conj found [center-x total])))]
+    (loop [x 1
+           current-color (plane/value-at bits row-start)
+           run-length 1
+           c1 0 c2 0 c3 0 c4 0
+           found []]
+      (if (= x width)
+        (if (and (= 1 current-color)
+                 (finder-ratio? c1 c2 c3 c4 run-length))
+          (hit found width c1 c2 c3 c4 run-length)
+          found)
+        (let [color (plane/value-at bits (+ row-start x))]
+          (if (= color current-color)
+            (recur (inc x) current-color (inc run-length)
+                   c1 c2 c3 c4 found)
+            (recur (inc x) color 1
+                   c2 c3 c4 run-length
+                   (if (and (= 1 current-color)
+                            (finder-ratio? c1 c2 c3 c4 run-length))
+                     (hit found x c1 c2 c3 c4 run-length)
+                     found))))))))
 
 (defn- merge-candidate
   "Folds a confirmed hit into an existing nearby center or starts a new one."
@@ -159,18 +194,13 @@
   [{:keys [height] :as bitmap}]
   (reduce
    (fn [candidates y]
-     (let [runs (row-runs bitmap y)]
-       (reduce
-        (fn [candidates window-start]
-          (let [window (subvec runs window-start (+ window-start 5))]
-            (if (and (= 1 (:color (first window)))
-                     (pattern-match? (mapv :length window) [1 1 3 1 1]))
-              (if-let [candidate (window-candidate bitmap window y)]
-                (merge-candidate candidates candidate)
-                candidates)
-              candidates)))
-        candidates
-        (range (max 0 (- (count runs) 4))))))
+     (reduce
+      (fn [candidates [center-x total]]
+        (if-let [candidate (confirm-candidate bitmap center-x y total)]
+          (merge-candidate candidates candidate)
+          candidates))
+      candidates
+      (row-finder-hits bitmap y)))
    []
    (range height)))
 
