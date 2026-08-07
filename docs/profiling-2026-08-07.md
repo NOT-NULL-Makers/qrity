@@ -67,6 +67,30 @@ runtime-neutral.
    but it crosses the mask namespace's candidate-value contract — a design
    decision for the stable-API phase, not a local optimization.
 
+## Profiling the shipped artifact (added same day)
+
+`scripts/translate_cpuprofile.mjs` closes the method gap: the `:advanced`
+build is compiled with `:source-map`, profiled under `node --cpu-prof`,
+and the minified frames are translated back to original file:line
+positions through the source map — so the artifact people actually run is
+what gets profiled, with `:simple` builds no longer needed. Closure's
+inlining means some frames vanish into their callers; attribution is by
+the surviving frame's definition site, which is the honest granularity of
+the shipped code.
+
+The artifact profile reshuffles the decode ranking relative to the
+`:simple` profile: after findings 1–2, adaptive binarization is no longer
+dominant under `:advanced` (~17 % around `image.cljc` block statistics
+and fill); the larger remaining shares are the detector's cross-check
+walks (`detect.cljc` cross-check, ~28 %) and the alignment search's
+run-length pass (~10 %), with ~13 % garbage collector and ~16 % in
+`cljs.core` equality/arithmetic shims. Encode's shape survives
+translation: mask scoring ~52 % (now including ~21 % building the eight
+masked candidate matrices in `matrix.cljc` — finding 4's territory) and
+message interleaving ~12 %. Next fruit, if browser decode speed ever
+needs another push: the detector's cross-checks and alignment search,
+and finding 4 for encode.
+
 ## Confirmed non-findings
 
 Reed–Solomon, bit-stream parsing, and matrix reconstruction each stay
