@@ -117,12 +117,25 @@
 
 (defn- interleave-columns
   [blocks]
-  (let [maximum-length (apply max (map count blocks))]
-    (into []
-          (for [codeword-index (range maximum-length)
-                block blocks
-                :when (< codeword-index (count block))]
-            (nth block codeword-index)))))
+  (let [block-count (count blocks)
+        lengths (mapv count blocks)
+        maximum-length (reduce max 0 lengths)]
+    (loop [codeword-index 0
+           interleaved []]
+      (if (= codeword-index maximum-length)
+        interleaved
+        (recur (inc codeword-index)
+               (loop [block-index 0
+                      interleaved interleaved]
+                 (if (= block-index block-count)
+                   interleaved
+                   (recur (inc block-index)
+                          (if (< codeword-index
+                                 (nth lengths block-index))
+                            (conj interleaved
+                                  (nth (nth blocks block-index)
+                                       codeword-index))
+                            interleaved)))))))))
 
 (defn interleave-data-codewords
   "Interleaves shortest-first equal or one-codeword-unequal data blocks."

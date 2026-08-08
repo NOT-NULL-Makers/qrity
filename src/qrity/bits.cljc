@@ -82,7 +82,13 @@
   (when-not (zero? (mod (count bits) 8))
     (throw (ex-info "Bit count is not a whole number of codewords"
                     {:bit-count (count bits)})))
-  (mapv bits->unsigned-integer (partition 8 bits)))
+  (let [bits (vec bits)]
+    (mapv (fn [codeword-index]
+            (bits->unsigned-integer
+             (subvec bits
+                     (* 8 codeword-index)
+                     (* 8 (inc codeword-index)))))
+          (range (quot (count bits) 8)))))
 
 (defn- character-code
   [character]
