@@ -71,21 +71,22 @@
   coordinate), collecting the middle dark run and the two light and dark
   runs on each side. Returns the refined center of the middle run, or nil
   when the runs break the ratio or drift far from the originating total."
-  [bitmap axis fixed center pattern-total]
+  [{:keys [width height bits]} axis fixed center pattern-total]
   (let [limit (* 2 pattern-total)
-        extent (case axis
-                 :vertical (:height bitmap)
-                 :horizontal (:width bitmap))
-        color-at (fn [position]
-                   (case axis
-                     :vertical (pixel bitmap fixed position)
-                     :horizontal (pixel bitmap position fixed)))
+        ;; Both axes are strided reads of the plane; hoisting base and
+        ;; stride out of the walks removes a per-pixel axis dispatch —
+        ;; profiled as the decoder's largest remaining share.
+        extent (case axis :vertical height :horizontal width)
+        base (case axis :vertical fixed :horizontal (* fixed width))
+        stride (case axis :vertical width :horizontal 1)
         walk (fn [start step color]
                (loop [position start
                       counted 0]
                  (if (and (< -1 position extent)
                           (< counted limit)
-                          (= color (color-at position)))
+                          (= color (plane/value-at
+                                    bits
+                                    (+ base (* stride position)))))
                    (recur (+ position step) (inc counted))
                    counted)))
         middle-before (walk center -1 1)
