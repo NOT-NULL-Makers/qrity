@@ -120,3 +120,16 @@ acceptable for the demo page); decouple encode from the walkthrough
 contract when that phase opens; a spec-eliding production macro
 (~−120 KB raw / −25 KB gzipped) is recorded as an option but rejected
 for now — it cuts against colocated specs for a modest compressed win.
+
+Evaluated and rejected (2026-08-08, measured): ClojureScript's
+`:lite-mode` and `:elide-to-string`. Lite-mode halves the bare
+`cljs.core` floor (89.6 → 42.4 KB raw) but changes collection-literal
+emission such that this codebase's application code grows more than the
+core shrinks — the site went 427.5 → 441.8 KB raw, with gzipped size
+unchanged (~103 KB) across all flag combinations; `:elide-to-string`
+saved ~1 KB and the site actually uses printing. Converting the
+standards catalogs to raw `#js` tables falls to the same arithmetic:
+they are ~93 KB raw but ~22 KB gzipped (4:1, highly repetitive), so the
+compressed payload barely moves while the keyword-access contract
+breaks. The bundle's size lives in gzip-space; only genuinely unused
+code — the walkthrough-contract decoupling above — moves it.
