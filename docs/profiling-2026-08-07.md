@@ -157,3 +157,24 @@ separately published artifacts ever be wanted, the cut lines
 (core / encode+plan+walkthrough / image+detect+scan+adapters) already
 exist and it is a packaging decision for the release phase, not a code
 change.
+
+## Folklore-sweep shortlist (2026-08-09, measured)
+
+A pattern sweep (reflection, satisfies?/flatten/merge/concat/lazy-seq
+machinery, per-element get-in) classified every hit by measured profile
+share. Findings: the folklore patterns present in cold code — canonical
+predicates, memoized template construction, once-per-symbol assembly —
+were left alone; five items were taken, committed separately:
+reflection hints plus a *warn-on-reflection* tripwire in the JVM test
+runner (which immediately caught two more sites in test oracles; the
+speed effect was nil — the reflector cache had kept the defect cheap);
+stride-hoisted cross-check walks; the alignment search on the sliding
+five-run pass (retiring the run-map builder); nth chains for per-module
+reads; and indexed interleaving/bit-splitting. Outcomes: JVM 1 Mpx
+decode 124 → ~110 ms with locate-symbol ~135 → 39 ms; the shipped
+:advanced artifact on V8 decodes 175 → ~141 ms (−19 %), with the
+cross-check share falling ~28 % → ~17 % and the alignment search
+~10 % → ~3 %; encode was JVM- and V8-neutral, its remaining share
+being finding 4's candidate materialization. Two of five items were
+JVM-neutral and V8-ranked — the runtimes no longer agree the way the
+first profile round did, so future work must re-profile both.
