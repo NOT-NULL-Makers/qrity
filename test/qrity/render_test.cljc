@@ -1,6 +1,6 @@
 (ns qrity.render-test
   (:require [clojure.string :as string]
-            [qrity.encode :as encode]
+            [qrity.walkthrough :as walkthrough]
             [qrity.render :as render]
             #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])))
@@ -53,7 +53,7 @@
                                 1))))
 
 (deftest renders-a-complete-symbol-with-the-default-quiet-zone
-  (let [matrix (get-in (encode/encode-numeric-v1-m "8675309")
+  (let [matrix (get-in (walkthrough/encode-numeric-v1-m "8675309")
                        [:symbol :matrix])
         output (render/render-unicode matrix)
         lines (string/split output #"\n")
@@ -114,7 +114,7 @@
             (pr-str [row column]))))))
 
 (deftest generated-plain-pbm-is-deterministic-and-portable
-  (let [matrix (get-in (encode/encode-numeric-v1-m "8675309")
+  (let [matrix (get-in (walkthrough/encode-numeric-v1-m "8675309")
                        [:symbol :matrix])
         first-output (render/render-pbm matrix)
         second-output (render/render-pbm matrix)

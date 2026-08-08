@@ -87,12 +87,16 @@ surrounding four-module quiet zone is deliberately not part of the matrix and mu
 added by a renderer.
 
 The exact `encode-numeric` name and return shape remain provisional. For the fixed
-Version 1-M teaching pipeline, call `encode-numeric-v1-m`; it returns the intermediate
-results of all seven stages and stores its finished symbol under `:symbol`:
+Version 1-M teaching pipeline, call `qrity.walkthrough/encode-numeric-v1-m`; it
+returns the intermediate results of all seven stages and stores its finished symbol
+under `:symbol`. It lives in its own namespace so that consumers of the generalized
+encoders do not carry the walkthrough's contract machinery:
 
 ```clojure
+(require '[qrity.walkthrough :as qw])
+
 (def walkthrough
-  (qr/encode-numeric-v1-m "8675309"))
+  (qw/encode-numeric-v1-m "8675309"))
 
 (def fixed-symbol (:symbol walkthrough))
 ```
@@ -503,10 +507,10 @@ source file:
 
 ```clojure
 (ns example.core
-  (:require [qrity.encode :as qr]))
+  (:require [qrity.walkthrough :as qw]))
 
 (def result
-  (qr/encode-numeric-v1-m "8675309"))
+  (qw/encode-numeric-v1-m "8675309"))
 
 (def modules
   (get-in result [:symbol :matrix]))
@@ -689,8 +693,8 @@ the [standards ledger](docs/standards-ledger.md).
 
 The mode-specific encoders return provisional generalized symbols and choose the
 smallest version and minimum-penalty mask for the explicit correction level.
-`encode-numeric-v1-m` remains the complete fixed stage state; its `:symbol` entry is
-the fixed-profile result. The shared JVM and Node-hosted ClojureScript tests include
+`qrity.walkthrough/encode-numeric-v1-m` remains the complete fixed stage state; its
+`:symbol` entry is the fixed-profile result. The shared JVM and Node-hosted ClojureScript tests include
 generated payloads, stage invariants, and the Annex I.2 vector and run with:
 
 ```sh

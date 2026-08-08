@@ -133,3 +133,12 @@ they are ~93 KB raw but ~22 KB gzipped (4:1, highly repetitive), so the
 compressed payload barely moves while the keyword-access contract
 breaks. The bundle's size lives in gzip-space; only genuinely unused
 code — the walkthrough-contract decoupling above — moves it.
+
+Decoupling outcome (2026-08-08): the walkthrough now lives in
+`qrity.walkthrough` and `qrity.encode` no longer requires `qrity.spec`.
+Measured saving: site 428.9 → 408.8 KB raw, 103.1 → 98.0 KB gzipped —
+real but well under the 50–70 KB estimate, which had double-counted:
+the walkthrough-contract isolation build included pipeline dependencies
+the site needs regardless, so the contract's own surface is ~20 KB raw.
+The change stands on its API-shape merit (the first evaluation's
+deferred debt) with the size win as a bonus, not the other way around.

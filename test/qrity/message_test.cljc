@@ -1,7 +1,7 @@
 (ns qrity.message-test
   (:require [clojure.spec.alpha :as s]
             [qrity.bits :as bits]
-            [qrity.encode :as encode]
+            [qrity.walkthrough :as walkthrough]
             [qrity.message :as message]
             [qrity.parameters :as parameters]
             [qrity.reed-solomon :as reed-solomon]
@@ -379,7 +379,7 @@
                    (apply
                     str
                     (take length (cycle "0123456789")))
-                   fixed (encode/encode-numeric-v1-m payload)
+                   fixed (walkthrough/encode-numeric-v1-m payload)
                    generalized
                    (message/construct-final-message
                     (segment/numeric-data-codewords

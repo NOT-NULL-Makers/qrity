@@ -1,7 +1,7 @@
 (ns qrity.segment-test
   (:require [clojure.spec.alpha :as s]
             [qrity.bits :as bits]
-            [qrity.encode :as encode]
+            [qrity.walkthrough :as walkthrough]
             [qrity.parameters :as parameters]
             [qrity.segment :as segment]
             #?(:clj [clojure.test :refer [deftest is testing]]
@@ -154,7 +154,7 @@
 (deftest generalized-version-one-m-data-equals-fixed-stage
   (doseq [length (range 1 35)
           :let [payload (digits length)
-                fixed (encode/encode-numeric-v1-m payload)]]
+                fixed (walkthrough/encode-numeric-v1-m payload)]]
     (is (= (:data-codewords fixed)
            (segment/numeric-data-codewords payload 1 :m)))))
 

@@ -7,6 +7,7 @@
                :cljs [clojure.test.check.properties :as prop
                       :include-macros true])
             [qrity.encode :as encode]
+            [qrity.walkthrough :as walkthrough]
             [qrity.mask :as mask]
             [qrity.matrix :as matrix]
             [qrity.message :as message]
@@ -307,7 +308,7 @@
              :maximum-capacity])))))
 
 (deftest numeric-entry-points-remain-unchanged
-  (let [fixed (encode/encode-numeric-v1-m "01234567")
+  (let [fixed (walkthrough/encode-numeric-v1-m "01234567")
         generalized (encode/encode-numeric "01234567" :m)]
     (is (= :numeric
            (get-in fixed [:symbol :segments 0 :mode])))

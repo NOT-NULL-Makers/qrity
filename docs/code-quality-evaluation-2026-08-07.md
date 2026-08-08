@@ -8,6 +8,13 @@
 > commit recording this note. Still open from F6: the eventual `matrix.cljc`
 > split, `render-pbm` allocation behavior, spec `:args` shapes, and the
 > nested-repo housekeeping — all deliberately deferred.
+>
+> **Second status update (2026-08-08):** the fixed-profile walkthrough and
+> its `qrity.spec` contract surface now live in `qrity.walkthrough`,
+> decoupled from the generalized `qrity.encode` entry points — resolving
+> the verdict's "fixed-profile compatibility arities embedded inside
+> general-purpose namespaces" debt (and shaving ~20 KB from advanced
+> ClojureScript consumers; see `docs/profiling-2026-08-07.md`).
 
 Scope: all 11 source namespaces under `src/qrity/` (~4,100 lines), the test suite
 (~5,150 lines, 22 files), `deps.edn`, `README.md`, and the verification scripts.

@@ -5,6 +5,7 @@
             #?(:clj [clojure.test.check.properties :as prop]
                :cljs [clojure.test.check.properties :as prop :include-macros true])
             [qrity.encode :as encode]
+            [qrity.walkthrough :as walkthrough]
             [qrity.mask :as mask]
             [qrity.matrix :as matrix]
             [qrity.message :as message]
@@ -184,12 +185,12 @@
               {:version "one"})))))
 
 (deftest fixed-version-one-m-api-remains-exact
-  (let [state (encode/encode-numeric-v1-m "01234567")]
+  (let [state (walkthrough/encode-numeric-v1-m "01234567")]
     (is (= 2 (get-in state [:symbol :mask-reference])))
     (is (= numeric-symbol-keys
            (set (keys (:symbol state)))))
     (is (= (:matrix state)
            (get-in state [:symbol :matrix])))
     (is (= state
-           (encode/run-complete-pipeline
-            (encode/numeric-v1-m-request "01234567"))))))
+           (walkthrough/run-complete-pipeline
+            (walkthrough/numeric-v1-m-request "01234567"))))))

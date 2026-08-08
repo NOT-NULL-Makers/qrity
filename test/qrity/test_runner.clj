@@ -7,7 +7,6 @@
             [qrity.byte-segment-test]
             [qrity.decode-test]
             [qrity.detect-test]
-            [qrity.encode-test]
             [qrity.generalized-encode-test]
             [qrity.image-io-test]
             [qrity.image-test]
@@ -24,7 +23,8 @@
             [qrity.render-test]
             [qrity.scan-test]
             [qrity.segment-test]
-            [qrity.text-test]))
+            [qrity.text-test]
+            [qrity.walkthrough-test]))
 
 (defn -main
   [& _]
@@ -36,7 +36,6 @@
                         'qrity.byte-segment-test
                         'qrity.decode-test
                         'qrity.detect-test
-                        'qrity.encode-test
                         'qrity.generalized-encode-test
                         'qrity.image-io-test
                         'qrity.image-test
@@ -53,7 +52,8 @@
                         'qrity.render-test
                         'qrity.scan-test
                         'qrity.segment-test
-                        'qrity.text-test)]
+                        'qrity.text-test
+                        'qrity.walkthrough-test)]
     (when-not (and (pos? test)
                    (zero? (+ fail error)))
       (System/exit 1))))

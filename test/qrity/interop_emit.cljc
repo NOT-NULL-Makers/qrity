@@ -1,6 +1,6 @@
 (ns qrity.interop-emit
   #?(:clj (:gen-class))
-  (:require [qrity.encode :as encode]
+  (:require [qrity.walkthrough :as walkthrough]
             [qrity.render :as render]))
 
 (defn- argument-pairs
@@ -22,7 +22,7 @@
 
 (defn- emit!
   [payload output-path]
-  (let [matrix (get-in (encode/encode-numeric-v1-m payload)
+  (let [matrix (get-in (walkthrough/encode-numeric-v1-m payload)
                        [:symbol :matrix])]
     (write-utf-8! output-path (render/render-pbm matrix))))
 

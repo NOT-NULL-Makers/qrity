@@ -1,11 +1,11 @@
-(ns qrity.encode-test
+(ns qrity.walkthrough-test
   (:require [clojure.spec.alpha :as s]
             [clojure.test.check :as tc]
             [clojure.test.check.generators :as gen]
             #?(:clj [clojure.test.check.properties :as prop]
                :cljs [clojure.test.check.properties :as prop :include-macros true])
             [qrity.bits :as bits]
-            [qrity.encode :as encode]
+            [qrity.walkthrough :as walkthrough]
             [qrity.matrix :as matrix]
             [qrity.metadata :as metadata]
             [qrity.reed-solomon :as reed-solomon]
@@ -87,15 +87,15 @@
 
 (defn states-for
   [digits]
-  (let [initial (encode/initial-state
-                 (encode/numeric-v1-m-request digits))
-        analyzed (encode/analyze-data initial)
-        encoded (encode/encode-data analyzed)
-        corrected (encode/add-error-correction encoded)
-        messaged (encode/construct-final-message corrected)
-        placed (encode/place-modules messaged)
-        masked (encode/apply-data-mask placed)
-        finalized (encode/add-format-and-version-information masked)]
+  (let [initial (walkthrough/initial-state
+                 (walkthrough/numeric-v1-m-request digits))
+        analyzed (walkthrough/analyze-data initial)
+        encoded (walkthrough/encode-data analyzed)
+        corrected (walkthrough/add-error-correction encoded)
+        messaged (walkthrough/construct-final-message corrected)
+        placed (walkthrough/place-modules messaged)
+        masked (walkthrough/apply-data-mask placed)
+        finalized (walkthrough/add-format-and-version-information masked)]
     {:analyzed analyzed
      :encoded encoded
      :corrected corrected
@@ -328,7 +328,7 @@
          "111111101111010010100"]))
 
 (deftest annex-i-final-symbol-matches-the-rendered-standard-figure
-  (let [state (encode/encode-numeric-v1-m "01234567")]
+  (let [state (walkthrough/encode-numeric-v1-m "01234567")]
     (is (= annex-i-final-matrix (:matrix state)))
     (is (= (:matrix state) (get-in state [:symbol :matrix])))
     (is (s/valid? ::qspec/final-state state))
@@ -350,7 +350,7 @@
                           (s/valid? ::qspec/placed-state placed)
                           (s/valid? ::qspec/masked-state masked)
                           (s/valid? ::qspec/final-state finalized)
-                          (= finalized (encode/encode-numeric-v1-m digits))))))]
+                          (= finalized (walkthrough/encode-numeric-v1-m digits))))))]
     (is (:pass? result) (pr-str result))))
 
 (deftest clause-7-1-order-and-implementation-prefix-are-complete
@@ -361,13 +361,13 @@
           :module-placement
           :data-masking
           :format-and-version-information]
-         encode/clause-7-1-stage-order))
-  (is (= 7 (count encode/clause-7-1-stages)))
-  (is (= 7 encode/implemented-stage-count))
-  (is (= encode/clause-7-1-stage-order
+         walkthrough/clause-7-1-stage-order))
+  (is (= 7 (count walkthrough/clause-7-1-stages)))
+  (is (= 7 walkthrough/implemented-stage-count))
+  (is (= walkthrough/clause-7-1-stage-order
          (:completed-stages
-          (encode/run-implemented-prefix
-           (encode/numeric-v1-m-request "1"))))))
+          (walkthrough/run-implemented-prefix
+           (walkthrough/numeric-v1-m-request "1"))))))
 
 (deftest invalid-numeric-inputs-retain-structured-reasons
   (doseq [[digits reason]
@@ -378,7 +378,7 @@
            [(apply str (repeat 35 "a")) :over-capacity]
            [nil :non-string-payload]
            [123 :non-string-payload]]]
-    (let [data (exception-data #(encode/encode-numeric-v1-m digits))]
+    (let [data (exception-data #(walkthrough/encode-numeric-v1-m digits))]
       (is (= :invalid-request (:qrity/error data))
           (pr-str {:digits digits :data data}))
       (is (= :data-analysis (:stage data)))
@@ -389,7 +389,7 @@
 
 (deftest stages-reject-out-of-order-or-malformed-state
   (let [analyzed (:analyzed (states-for "123"))
-        data (exception-data #(encode/add-error-correction analyzed))]
+        data (exception-data #(walkthrough/add-error-correction analyzed))]
     (is (= :invalid-stage-state (:qrity/error data)))
     (is (= :error-correction-coding (:stage data)))
     (is (= 3 (:stage-index data)))
@@ -417,15 +417,15 @@
         (update-in finalized [:matrix 0 0] bit-xor 1)]
     (doseq [[stage thunk]
             [[:error-correction-coding
-              #(encode/add-error-correction tampered-encoded)]
+              #(walkthrough/add-error-correction tampered-encoded)]
              [:final-message-construction
-              #(encode/construct-final-message tampered-corrected)]
+              #(walkthrough/construct-final-message tampered-corrected)]
              [:module-placement
-              #(encode/place-modules tampered-messaged)]
+              #(walkthrough/place-modules tampered-messaged)]
              [:data-masking
-              #(encode/apply-data-mask tampered-placed)]
+              #(walkthrough/apply-data-mask tampered-placed)]
              [:format-and-version-information
-              #(encode/add-format-and-version-information tampered-masked)]]]
+              #(walkthrough/add-format-and-version-information tampered-masked)]]]
       (let [data (exception-data thunk)]
         (is (= :invalid-stage-state (:qrity/error data)))
         (is (= stage (:stage data)))))
@@ -433,7 +433,7 @@
 
 (deftest malformed-and-future-artifact-states-fail-structurally
   (let [analyzed (:analyzed (states-for "123"))
-        request (encode/numeric-v1-m-request "123")
+        request (walkthrough/numeric-v1-m-request "123")
         with-future-artifacts
         (assoc analyzed
                :message-codewords [1]
@@ -445,18 +445,18 @@
         request-with-future (assoc request :future-option :kept)
         malformed
         {:completed-stages
-         (subvec encode/clause-7-1-stage-order 0 4)
+         (subvec walkthrough/clause-7-1-stage-order 0 4)
          :data-codewords 3
          :error-correction-codewords 4}
         future-data (exception-data
-                     #(encode/encode-data with-future-artifacts))
+                     #(walkthrough/encode-data with-future-artifacts))
         initial-future-data
-        (exception-data #(encode/analyze-data initial-with-future))
+        (exception-data #(walkthrough/analyze-data initial-with-future))
         request-future-data
         (exception-data
-         #(encode/run-complete-pipeline request-with-future))
+         #(walkthrough/run-complete-pipeline request-with-future))
         malformed-data (exception-data
-                        #(encode/place-modules malformed))
+                        #(walkthrough/place-modules malformed))
         unresolved-symbol
         {:version 1
          :error-correction-level :m
@@ -483,7 +483,7 @@
                       #(assoc-in % [0 :future-artifact] :kept)))))))
 
 (deftest fixed-request-parameters-are-still-validated
-  (let [request (encode/numeric-v1-m-request "123")]
+  (let [request (walkthrough/numeric-v1-m-request "123")]
     (doseq [[field value]
             [[:mode :byte]
              [:version 2]
@@ -491,7 +491,7 @@
              [:mask-reference 3]]]
       (let [data
             (exception-data
-             #(encode/run-complete-pipeline (assoc request field value)))]
+             #(walkthrough/run-complete-pipeline (assoc request field value)))]
         (is (= :invalid-request (:qrity/error data)))
         (is (= :unsupported-parameters (:reason data)))
         (is (= :data-analysis (:stage data)))))))

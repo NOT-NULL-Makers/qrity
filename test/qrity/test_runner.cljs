@@ -7,7 +7,6 @@
             [qrity.byte-segment-test]
             [qrity.decode-test]
             [qrity.detect-test]
-            [qrity.encode-test]
             [qrity.generalized-encode-test]
             [qrity.image-canvas-test]
             [qrity.image-test]
@@ -24,7 +23,8 @@
             [qrity.render-test]
             [qrity.scan-test]
             [qrity.segment-test]
-            [qrity.text-test]))
+            [qrity.text-test]
+            [qrity.walkthrough-test]))
 
 (defmethod test/report [:cljs.test/default :end-run-tests]
   [summary]
@@ -46,7 +46,6 @@
                   'qrity.byte-segment-test
                   'qrity.decode-test
                   'qrity.detect-test
-                  'qrity.encode-test
                   'qrity.generalized-encode-test
                   'qrity.image-canvas-test
                   'qrity.image-test
@@ -63,6 +62,7 @@
                   'qrity.render-test
                   'qrity.scan-test
                   'qrity.segment-test
-                  'qrity.text-test))
+                  'qrity.text-test
+                  'qrity.walkthrough-test))
 
 (set! *main-cli-fn* -main)
