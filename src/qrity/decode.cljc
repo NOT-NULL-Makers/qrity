@@ -208,7 +208,12 @@
                   (construction-matrix bit-matrix template)
                   mask-reference)
         coordinates (matrix/data-coordinates template)
-        message-bits (mapv #(if (= :dark (get-in unmasked %)) 1 0)
+        ;; Destructured nth chains instead of get-in: this runs once per
+        ;; data module, and get-in walks its path vector generically.
+        message-bits (mapv (fn [[row column]]
+                             (if (= :dark (nth (nth unmasked row) column))
+                               1
+                               0))
                            coordinates)
         message-bit-count (* 8 total-codeword-count)]
     ;; Remainder bits carry no message content and are ignored when present.
@@ -217,9 +222,9 @@
      :erased-codeword-indexes
      (into (sorted-set)
            (keep-indexed
-            (fn [bit-index coordinate]
+            (fn [bit-index [row column]]
               (when (and (< bit-index message-bit-count)
-                         (nil? (get-in bit-matrix coordinate)))
+                         (nil? (nth (nth bit-matrix row) column)))
                 (quot bit-index 8))))
            coordinates)}))
 
