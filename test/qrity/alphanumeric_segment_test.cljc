@@ -24,7 +24,7 @@
 
 (defn reference-character-value
   [character]
-  (.indexOf table-5 (str character)))
+  (.indexOf ^String table-5 ^String (str character)))
 
 (defn reference-data-bits
   [payload]

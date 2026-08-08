@@ -28,7 +28,8 @@
 (def ^:private alphanumeric-values
   (into #{}
         (map (fn [index]
-               #?(:clj (int (.charAt bits/alphanumeric-repertoire index))
+               #?(:clj (int (.charAt ^String bits/alphanumeric-repertoire
+                                     index))
                   :cljs (.charCodeAt bits/alphanumeric-repertoire index))))
         (range (count bits/alphanumeric-repertoire))))
 

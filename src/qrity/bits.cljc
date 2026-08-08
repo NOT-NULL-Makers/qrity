@@ -146,7 +146,7 @@
   (mapv
    (fn [code-unit-index]
      (let [code-unit
-           (character-code (.charAt text code-unit-index))]
+           (character-code (.charAt ^String text code-unit-index))]
        (when (> code-unit 0xFF)
          (fail!
           :invalid-iso-8859-1-text
@@ -259,7 +259,7 @@
   (s/and
    string?
    seq
-   (fn [text]
+   (fn [^String text]
      (every?
       #(<= (character-code (.charAt text %)) 0xFF)
       (range (count text))))))

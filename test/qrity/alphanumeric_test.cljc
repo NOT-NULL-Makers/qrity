@@ -27,7 +27,7 @@
 
 (defn reference-character-value
   [character]
-  (.indexOf table-5-repertoire (str character)))
+  (.indexOf ^String table-5-repertoire ^String (str character)))
 
 (defn reference-alphanumeric-data-bits
   [payload]
