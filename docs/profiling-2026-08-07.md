@@ -100,3 +100,23 @@ sliding-window rewrite, confirming that optimization landed. Node decodes
 the same 1 Mpx picture ~3× slower than the JVM (~1.5 s vs ~0.45 s before
 these fixes) — the ratio, not the absolute, is the number to watch after
 changes.
+
+## Artifact size decomposition (added 2026-08-08)
+
+Measured with isolation builds (`:advanced`, ClojureScript 1.12.145),
+each layer including those above it: `cljs.core` floor 90 KB raw / 20 KB
+gzipped; + spec runtime 132/30; + `qrity.parameters` catalogs 225/52;
++ `qrity.spec` walkthrough contract 298/70; encode entry alone 342/80;
+the full demonstration site 429/103. Four causes, in order: the
+untree-shakeable `cljs.core` runtime; spec's dynamic registry (every
+colocated `s/def`/`s/fdef` ships, un-eliminable); the Table 1/7/9
+standards catalogs (genuine data, compresses ~4:1); and
+`qrity.encode`'s hard require of `qrity.spec`, which drags the
+walkthrough-contract surface into every consumer — the same
+generalized-vs-walkthrough coupling the 2026-08-07 code-quality
+evaluation deferred to the stable-API phase, now also worth an estimated
+50–70 KB raw. Disposition: serve compressed (103 KB gzipped is
+acceptable for the demo page); decouple encode from the walkthrough
+contract when that phase opens; a spec-eliding production macro
+(~−120 KB raw / −25 KB gzipped) is recorded as an option but rejected
+for now — it cuts against colocated specs for a modest compressed win.
