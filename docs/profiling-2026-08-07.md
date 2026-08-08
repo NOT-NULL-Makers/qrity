@@ -142,3 +142,18 @@ the walkthrough-contract isolation build included pipeline dependencies
 the site needs regardless, so the contract's own surface is ~20 KB raw.
 The change stands on its API-shape merit (the first evaluation's
 deferred debt) with the size win as a bonus, not the other way around.
+
+Modular releases (2026-08-08, measured): encode-only and decode-only
+builds already exist through the require graph — no artifact splitting
+needed. JVM consumers get modularity from lazy namespace loading of one
+zero-dependency source artifact; ClojureScript consumers get it from
+Closure pruning their own `:advanced` build: encode-only 323 KB raw /
+75 KB gzipped, decode-only 371/89, both 409/98. The ~285 KB the two
+share is the reuse doctrine made visible — the decoder deliberately runs
+on the encoder's templates, masks, interleaving, and Reed-Solomon, which
+is what the re-encode acceptance check and the reconstructed matrix cost;
+a lean decode-only is impossible by design and rightly so. Should
+separately published artifacts ever be wanted, the cut lines
+(core / encode+plan+walkthrough / image+detect+scan+adapters) already
+exist and it is a packaging decision for the release phase, not a code
+change.
