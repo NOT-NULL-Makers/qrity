@@ -48,22 +48,6 @@
          (< (abs (- (* 14 r3) (* 2 total))) total)
          (< (abs (- (* 14 r4) (* 2 total))) total))))
 
-(defn- row-runs
-  [{:keys [width] :as bitmap} y]
-  (loop [x 1
-         run-start 0
-         run-color (pixel bitmap 0 y)
-         runs []]
-    (if (= x width)
-      (conj runs {:color run-color :start run-start :length (- x run-start)})
-      (let [color (pixel bitmap x y)]
-        (if (= color run-color)
-          (recur (inc x) run-start run-color runs)
-          (recur (inc x) x color
-                 (conj runs {:color run-color
-                             :start run-start
-                             :length (- x run-start)})))))))
-
 (defn- cross-check
   "Re-measures a 1:1:3:1:1 candidate along one axis through a center pixel.
 
@@ -353,17 +337,54 @@
 
   The inner light ring, dark center, and light ring are each one module and
   reliably measurable; the outer dark runs may merge with neighboring dark
-  data modules, so only a minimum width is asked of them."
-  [runs module-size]
-  (let [[outer-before light-before center light-after outer-after]
-        (mapv :length runs)
-        inner-tolerance (+ 1.0 (/ module-size 2.0))
+  data modules, so only a minimum width is asked of them. All five runs
+  must exist — zero-length placeholders from a window still filling up are
+  no window at all."
+  [outer-before light-before center light-after outer-after module-size]
+  (let [inner-tolerance (+ 1.0 (/ module-size 2.0))
         one-module? (fn [run] (< (abs (- run module-size)) inner-tolerance))]
-    (and (one-module? light-before)
+    (and (pos? outer-before)
+         (pos? light-before)
+         (pos? center)
+         (pos? light-after)
+         (pos? outer-after)
+         (one-module? light-before)
          (one-module? center)
          (one-module? light-after)
          (>= outer-before (/ module-size 2.0))
          (>= outer-after (/ module-size 2.0)))))
+
+(defn- row-alignment-hits
+  "Sliding five-run pass over one row: the center of every window shaped
+  like an alignment pattern whose middle falls inside [x-from x-to]."
+  [{:keys [width bits]} y x-from x-to module-size]
+  (let [row-start (* y width)
+        hit (fn [found boundary-x c1 c2 c3 c4 completed]
+              (if (alignment-window? c1 c2 c3 c4 completed module-size)
+                (let [center-x (+ (- boundary-x completed c4 c3)
+                                  (/ c3 2.0))]
+                  (if (<= x-from center-x x-to)
+                    (conj found center-x)
+                    found))
+                found))]
+    (loop [x 1
+           current-color (plane/value-at bits row-start)
+           run-length 1
+           c1 0 c2 0 c3 0 c4 0
+           found []]
+      (if (= x width)
+        (if (= 1 current-color)
+          (hit found width c1 c2 c3 c4 run-length)
+          found)
+        (let [color (plane/value-at bits (+ row-start x))]
+          (if (= color current-color)
+            (recur (inc x) current-color (inc run-length)
+                   c1 c2 c3 c4 found)
+            (recur (inc x) color 1
+                   c2 c3 c4 run-length
+                   (if (= 1 current-color)
+                     (hit found x c1 c2 c3 c4 run-length)
+                     found))))))))
 
 (defn- alignment-cross-check
   "Verifies the light/dark/light column through a candidate center."
@@ -403,16 +424,8 @@
         y-to (min (dec height) (round-to-int (+ expected-y radius)))
         candidates
         (for [y (range y-from (inc y-to))
-              :let [runs (filterv #(<= x-from
-                                       (+ (:start %) (:length %) -1))
-                                  (row-runs bitmap y))]
-              window-start (range (max 0 (- (count runs) 4)))
-              :let [window (subvec runs window-start (+ window-start 5))
-                    middle (nth window 2)
-                    center-x (+ (:start middle) (/ (:length middle) 2.0))]
-              :when (and (= 1 (:color (first window)))
-                         (<= x-from center-x x-to)
-                         (alignment-window? window module-size))
+              center-x (row-alignment-hits bitmap y x-from x-to
+                                           module-size)
               :let [center-y (alignment-cross-check
                               bitmap (int center-x) y module-size)]
               :when center-y]
