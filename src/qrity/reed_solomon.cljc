@@ -1,10 +1,16 @@
-(ns qrity.reed-solomon)
+(ns qrity.reed-solomon
+  (:require [qrity.plane :as plane]))
 
 ;; ISO/IEC 18004:2015, Clause 7.5.2: x^8 + x^4 + x^3 + x^2 + 1.
 (def primitive-polynomial 0x11D)
 
-(defn gf-multiply
-  "Multiplies two GF(256) elements using the QR Code primitive polynomial."
+(defn- bootstrap-multiply
+  "Bit-by-bit GF(256) multiplication, used only to build the tables below.
+
+  Table lookups replaced this as the working multiplier once profiling
+  showed parity generation dominating large-symbol encoding (~69 ms of a
+  Version 25 encode); the loop remains as the table builder so the tables
+  stay derived from the primitive polynomial rather than transcribed."
   [left right]
   (loop [multiplicand left
          multiplier right
@@ -19,6 +25,35 @@
                            (bit-xor shifted primitive-polynomial)
                            shifted)]
         (recur multiplicand (quot multiplier 2) product)))))
+
+(def ^:private exponentials
+  "α^i for i in 0..509 as an octet plane; α = 2 generates the group.
+
+  Doubled in length so a sum of two logarithms (at most 508) indexes
+  directly, with no modular reduction in the multiply. Both tables are
+  `qrity.plane` planes: every entry is an octet or a logarithm below
+  255, and the packed representation reads flat on both runtimes —
+  persistent-vector nth measurably lost to the old bit loop on V8."
+  (let [single-cycle (vec (take 255 (iterate #(bootstrap-multiply % 2) 1)))]
+    (plane/from-values (into single-cycle single-cycle))))
+
+(def ^:private logarithms
+  "log_α indexed by element; index 0 is unused — zero has no logarithm
+  and every caller guards it first."
+  (plane/from-values
+   (reduce (fn [table power]
+             (assoc table (plane/value-at exponentials power) power))
+           (vec (repeat 256 0))
+           (range 255))))
+
+(defn gf-multiply
+  "Multiplies two GF(256) elements via the log/antilog tables."
+  [left right]
+  (if (or (zero? left) (zero? right))
+    0
+    (plane/value-at exponentials
+                    (+ (plane/value-at logarithms left)
+                       (plane/value-at logarithms right)))))
 
 (defn polynomial-multiply
   "Multiplies high-degree-first coefficient vectors over GF(256)."
@@ -79,16 +114,12 @@
 ;; the codeword vectors at the boundary stay highest-degree-first like the
 ;; encoder's.
 
-(def ^:private exponentials
-  "α^i for i in 0..254; α = 2 generates the multiplicative group."
-  (vec (take 255 (iterate #(gf-multiply % 2) 1))))
-
-(def ^:private logarithms
-  (into {} (map-indexed (fn [power element] [element power]) exponentials)))
-
 (defn- gf-inverse
   [element]
-  (nth exponentials (mod (- 255 (logarithms element)) 255)))
+  (when (zero? element)
+    (throw (ex-info "Zero has no multiplicative inverse in GF(256)"
+                    {:qrity/error :zero-division})))
+  (plane/value-at exponentials (- 255 (plane/value-at logarithms element))))
 
 (defn- gf-divide
   [numerator denominator]
@@ -110,7 +141,7 @@
   (mapv (fn [root-power]
           (reduce (fn [value codeword]
                     (bit-xor (gf-multiply value
-                                          (nth exponentials root-power))
+                                          (plane/value-at exponentials root-power))
                              codeword))
                   0
                   received-codewords))
@@ -167,7 +198,7 @@
   (reduce (fn [polynomial position]
             (polynomial-multiply
              polynomial
-             [1 (nth exponentials
+             [1 (plane/value-at exponentials
                      (mod (- block-length 1 position) 255))]))
           [1]
           erasure-positions))
@@ -205,7 +236,7 @@
         (filter
          (fn [index]
            (let [position-power (- block-length 1 index)
-                 inverse-position (nth exponentials
+                 inverse-position (plane/value-at exponentials
                                        (mod (- 255 position-power) 255))]
              (zero? (evaluate-low-first locator inverse-position)))))
         (range block-length)))
@@ -213,8 +244,8 @@
 (defn- error-magnitude
   "Forney's formula with b = 0: X·Ω(X⁻¹)/σ'(X⁻¹) at one position value."
   [evaluator locator-odd-terms position-power]
-  (let [position-value (nth exponentials position-power)
-        inverse-position (nth exponentials (mod (- 255 position-power) 255))
+  (let [position-value (plane/value-at exponentials position-power)
+        inverse-position (plane/value-at exponentials (mod (- 255 position-power) 255))
         derivative (evaluate-low-first locator-odd-terms inverse-position)]
     (gf-multiply position-value
                  (gf-divide (evaluate-low-first evaluator inverse-position)

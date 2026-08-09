@@ -94,8 +94,11 @@ and finding 4 for encode.
 ## Confirmed non-findings
 
 Reed–Solomon, bit-stream parsing, and matrix reconstruction each stay
-under ~3 % everywhere — the recorded decision to keep the bit-loop
-`gf-multiply` stands. `row-finder-hits` shows at 3–7 % after its
+under ~3 % everywhere — the decision to keep the bit-loop `gf-multiply`
+stood until the 2026-08-09 matrix/render session found parity generation
+dominating large-symbol encoding, whereupon the recorded table-lookup
+lever was taken (~69 → ~16 ms for a Version 25 final message; the
+bit-loop survives as the table bootstrap). `row-finder-hits` shows at 3–7 % after its
 sliding-window rewrite, confirming that optimization landed. Node decodes
 the same 1 Mpx picture ~3× slower than the JVM (~1.5 s vs ~0.45 s before
 these fixes) — the ratio, not the absolute, is the number to watch after
