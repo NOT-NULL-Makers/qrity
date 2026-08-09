@@ -235,3 +235,22 @@ no local-mutation-gate extension — prefer `into`/`mapv` (transient-
 backed internally) over reduce-conj where a seq source exists, which
 recent rewrites already do. Revisit only if a new structure appears
 that is built in the hundreds of thousands of elements per operation.
+
+V8 addendum (2026-08-09, measured): the transients and string questions
+answer differently on ClojureScript, quantitatively though not in
+verdict. Transients on V8: 4.2× on the 1M ceiling (136 → 32 ms; JVM
+2.4×) and 3.7× on the real 15k black-point shape (1.78 → 0.48 ms; JVM
+~1.2× at best) — persistent conj costs relatively more there, and
+`into` again lands at transient speed (34.5 ms), so the "prefer
+into/mapv" rule captures the win idiomatically on both runtimes. The
+one explicit reduce-conj that cannot become `into` (black points read
+themselves during construction for neighbor inheritance) leaves ~1.3 ms
+per V8 binarization on the table — ~1 % of a decode, still declined.
+String concatenation: ^string hints on a reduce-str loop measure 2.6×
+on V8 (0.42 → 0.16 ms per 5k joins) and even beat idiomatic apply-str
+(0.235 ms); recorded as a technique with no current hot consumer — the
+first applications would be payload assembly and the inspector's report
+building if either ever ran hot in a browser. Cumulative shipped-
+artifact effect of the matrix/gf session (same-day, ~1 h apart, so the
+session-variance caveat applies): V8 encode ~161–164 → ~144–145 ms
+(~11 %, beyond the observed noise band), decode ~136–139 ms (wash).
