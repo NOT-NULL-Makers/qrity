@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -59,6 +60,11 @@ MANGLINGS = {
 # Stretch manglings are reported but do not gate the exit status.
 STRETCH = {"noise", "pixelate"}
 
+# ImageMagick 7 installs `magick`; ImageMagick 6 (Ubuntu 24.04's package)
+# only installs `convert`. Every invocation here uses the shared
+# `input [operations] output` form both entry points accept.
+MAGICK = "magick" if shutil.which("magick") else "convert"
+
 
 def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(command, capture_output=True, text=True, **kwargs)
@@ -74,7 +80,7 @@ def emit_ours(payload: str, level: str, target: Path) -> None:
         raise RuntimeError(f"emit-symbol failed: {completed.stderr}")
     # Force 8-bit grayscale: a bilevel PNG quantizes later Gaussian noise
     # into full-swing salt-and-pepper, which no analog camera produces.
-    run(["magick", str(pbm), "-depth", "8", "-type", "Grayscale",
+    run([MAGICK, str(pbm), "-depth", "8", "-type", "Grayscale",
          str(target)], check=True)
 
 
@@ -86,7 +92,7 @@ def emit_qrencode(payload: str, target: Path) -> None:
 
 
 def mangle(source: Path, arguments: list[str], target: Path) -> None:
-    run(["magick", str(source), *arguments, str(target)], check=True)
+    run([MAGICK, str(source), *arguments, str(target)], check=True)
 
 
 def overlay_blot(source: Path, target: Path) -> None:
@@ -95,7 +101,7 @@ def overlay_blot(source: Path, target: Path) -> None:
     x, y, radius = int(width * 0.55), int(height * 0.55), int(width * 0.03)
     run(
         [
-            "magick", str(source),
+            MAGICK, str(source),
             "-fill", "white",
             "-draw", f"circle {x},{y} {x + radius},{y}",
             str(target),
