@@ -19,6 +19,9 @@
   (b/delete {:path "target"}))
 
 (defn jar [_]
+  ;; A leftover root pom.xml would otherwise act as a write-pom template
+  ;; and silently override the pom-data below.
+  (b/delete {:path "pom.xml"})
   (b/write-pom
    {:class-dir class-dir
     :lib lib

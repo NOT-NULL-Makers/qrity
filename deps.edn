@@ -1,15 +1,15 @@
 {:paths ["src"]
 
  :deps
- {org.clojure/clojure {:mvn/version "1.12.0"}}
+ {org.clojure/clojure {:mvn/version "1.12.5"}}
 
  :aliases
  {:build
-  {:deps {io.github.clojure/tools.build {:mvn/version "0.10.5"}}
+  {:deps {io.github.clojure/tools.build {:mvn/version "0.10.14"}}
    :ns-default build}
 
   :deploy
-  {:extra-deps {slipset/deps-deploy {:mvn/version "0.2.2"}}
+  {:extra-deps {slipset/deps-deploy {:mvn/version "0.2.5"}}
    :main-opts ["-m" "deps-deploy.deps-deploy" "deploy"
                "target/qrity-0.1.0.jar"]}
 
