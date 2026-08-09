@@ -786,28 +786,24 @@ report paths printed by a run are intentionally not repository state.
 
 ## Current roadmap status
 
-As of 2026-07-31, progress against the original implementation plan is:
+As of 2026-08-09, every phase of the original generator plan is complete:
 
-| Phase | Status | Remaining work |
-|---|---|---|
-| Phase 0 — executable Clause 7.1 walkthrough | Complete | None |
-| Phase 1 — fixed Version 1-M Numeric vertical slice | Complete | None |
-| Phase 2 — Numeric, Alphanumeric, and Byte across ordinary Versions 1–40 | Complete, provisional mode-specific APIs | Stable automatic API decisions remain |
-| Phase 3 — mask selection and hardening | In progress | Broaden permanent high-density decoder coverage and optional differential checks |
-| Phase 4 — stable API and release evidence | Not started | Stable generalized encoder, final compatibility surface, and release documentation |
+| Phase | Status |
+|---|---|
+| Phase 0 — executable Clause 7.1 walkthrough | Complete |
+| Phase 1 — fixed Version 1-M Numeric vertical slice | Complete |
+| Phase 2 — Numeric, Alphanumeric, and Byte across ordinary Versions 1–40 | Complete |
+| Phase 3 — mask selection and hardening | Complete |
+| Phase 4 — stable API and release evidence | Complete for 0.1.0 — the public namespaces, error convention, and matrix form are stated in *Public API and stability* above |
 
-The Version 1–40/L-M-Q-H parameter, mode-specific message, function-matrix, placement,
-explicit-mask, format, version-information, candidate-binding, scoring, automatic
-selection, and provisional end-to-end Numeric orchestration are implemented. Permanent
-JVM/ClojureScript/Babashka production and ZBar/OpenCV verification cover all levels
-and representative Versions 1, 2, 7, and 10. Shared tests exercise count-width
-transitions into Versions 27 and 40. Table 7 Alphanumeric and Byte capacities,
-mode-generic capacity lookup, count-based version selection, and the private
-mode-independent final-symbol construction tail are also implemented. Alphanumeric
-Table 5 validation, 11/6-bit payload packing, 9/11/13-bit count fields,
-selected-profile padding, and complete symbol orchestration are implemented. Byte
-identity packing, 8/16-bit count fields, canonical octet provenance, and default
-ISO/IEC 8859-1 conversion are implemented. The stable automatic API remains open.
+Work adopted after that plan was written — free-text encoding with optimal
+segmentation and automatic ECI 000026/UTF-8, matrix-level decoding with
+Reed–Solomon error and erasure correction, picture scanning with adaptive
+binarization, rotation, perspective, mirror, and reflectance-reversal handling,
+the per-module symbol inspector, and the measured performance series — is
+summarized in `CHANGELOG.md`, with the reading pipeline's design history in
+`docs/decoding-exploration.md`. Micro QR, Kanji mode, Structured Append, and ECI
+designators beyond 000003/000026 remain out of scope and fail explicitly.
 
 ## Requirements for practical URL encoding
 
@@ -830,11 +826,16 @@ generate practical URLs.
 
 ## Non-goals
 
-- Scanning, locating, sampling, or decoding QR Code images.
-- Image repair, perspective correction, or print-quality grading.
+Scanning, locating, sampling, perspective correction, and decoding were
+originally out of scope; they were later adopted through their own explicit
+scope decision and are now supported (see *Read a QR code from a picture*).
+The remaining non-goals are:
+
+- Print-quality grading (ISO/IEC 15415-style verification).
 - Styled or deliberately damaged QR Codes, embedded logos, rounded modules, or other
   output that weakens the standard's functional patterns.
-- Using an existing QR encoder as production code or translating one line by line.
+- Using an existing QR encoder or decoder as production code or translating one
+  line by line.
 - Optimizing before a simple, traceable implementation is correct.
 - Treating a passing external decoder as proof of conformance.
 
@@ -1342,6 +1343,11 @@ The exact public error API remains an open design decision.
 
 ## Implementation roadmap
 
+This is the original generator roadmap, preserved as a historical record together
+with its per-batch status notes; all of its phases are complete (see *Current
+roadmap status*). The reading pipeline that followed it is documented in
+`docs/decoding-exploration.md` and `CHANGELOG.md`, not here.
+
 ### Phase 0 — executable Clause 7.1 walkthrough
 
 - Create the minimal Clojure/ClojureScript project and test layout.
@@ -1537,7 +1543,7 @@ them. Each gate must close before the named commitment:
 | Stable matrix representation | Public form decided for 0.1.x: square vectors of row vectors of 0/1 modules, quiet zone excluded, `nil` accepted on decode input for unknown modules; construction-internal representations (keyword cells, packed planes) remain internal | Consumer experience during 0.x | 1.0 |
 | Spec-generator and property-test dependencies | Phase 0 decided: `test.check` 1.1.3 | Shared generated tests pass on JVM and Node; revisit compatibility and shrinking quality before changing dependencies | Any dependency change or stable release |
 | Fixture/table storage and validation | Open | Double-entry/table consistency experiment | Standards constants are frozen |
-| Supported language and host versions | Pinned for 0.1.0: Clojure 1.12 / ClojureScript 1.12.145, exercised by CI on JDK 11, 17, and 21 with Node 20 for the ClojureScript suite (`.github/workflows/ci.yml`); local evidence predates the first CI run | Green CI history across the matrix | Widening or narrowing the claim |
+| Supported language and host versions | Pinned for 0.1.0: Clojure 1.12 / ClojureScript 1.12.145. A CI workflow covering JDK 11, 17, and 21 with Node 20 exists but is manually triggered only (`.github/workflows/ci.yml`, `workflow_dispatch`); the release evidence is local suite runs | Green CI history across the matrix | Widening or narrowing the claim |
 | First-release renderer set | Decided for 0.1.0: terminal Unicode and Plain PBM (both with reflectance-reversed rendering); bitmap/DOM output stays with the consumer via the matrix or the demonstration site's canvas painter | Consumer demand for further renderers | Adding renderers |
 | Mask-score tie handling | Decided for the provisional API: return all minima and choose the lowest numeric reference for deterministic selection; this is QRity policy, not an ISO rule | Revisit only if authoritative corrigenda or interoperability evidence requires another policy | Stabilizing the public API |
 
