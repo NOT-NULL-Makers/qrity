@@ -282,14 +282,26 @@
                  (not upward?)
                  (into coordinates pair-coordinates)))))))
 
+(def ^:private canonical-data-coordinates
+  "The placement traversal memoized per version.
+
+  Like the canonical templates, the traversal is a pure per-version value;
+  recomputing it cost ~5 ms per Version 25 placement and again per decode."
+  (memoize
+   (fn [version]
+     (traverse-data-coordinates (canonical-function-matrix version)))))
+
 (defn data-coordinates
   "Returns the Clause 7.7.3 placement traversal for a canonical template.
 
   Canonical input re-validation runs only under
-  `qrity.validation/*canonical-checks?*`."
+  `qrity.validation/*canonical-checks?*`; a matrix whose dimension matches
+  no version falls back to direct traversal."
   [matrix]
   (require-function-matrix! matrix)
-  (traverse-data-coordinates matrix))
+  (if-let [version (inferred-version matrix)]
+    (canonical-data-coordinates version)
+    (traverse-data-coordinates matrix)))
 
 (defn bit-vector?
   [value]
@@ -317,7 +329,9 @@
        :message-bits message-bits
        :clause "7.7.3"})))
   (let [version (inferred-version matrix)
-        coordinates (traverse-data-coordinates matrix)]
+        coordinates (if version
+                      (canonical-data-coordinates version)
+                      (traverse-data-coordinates matrix))]
     (when-not (= (count coordinates) (count message-bits))
       (throw
        (ex-info
@@ -350,7 +364,12 @@
                               (if (zero? bit) :light :dark)))
                   matrix
                   (map vector coordinates message-bits))]
-      (when (some #{:unset} (mapcat identity placed-matrix))
+      ;; With a canonical template, the traversal visits exactly the
+      ;; :unset cells and the count equality above already binds them to
+      ;; the message bits, so this whole-matrix sweep is re-validation —
+      ;; gated like its siblings.
+      (when (and validation/*canonical-checks?*
+                 (some #{:unset} (mapcat identity placed-matrix)))
         (throw
          (ex-info
           "Placement left encoding modules unresolved"

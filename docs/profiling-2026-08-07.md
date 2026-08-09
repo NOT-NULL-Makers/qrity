@@ -202,3 +202,16 @@ message` costs ~69 ms on a Version 25 symbol, almost entirely bit-loop
 `gf-multiply` under parity generation, which promotes the recorded
 table-lookup lever from "if RS speed ever matters" to the dominant
 large-symbol encode cost, ahead of finding 4.
+
+place-data (2026-08-09, measured): the presumed assoc-in cost was
+largely innocent. Profiling inside the function attributed its 13 ms
+(Version 25) as ~5 ms recomputing the placement traversal per call,
+~2-3 ms re-scanning the whole matrix for leftover :unset cells, ~2 ms
+always-on bit-vector validation, and only ~2.5 ms actual placement. The
+fixes taken: the traversal is memoized per version like the canonical
+templates (also saving ~5 ms per decode), and the :unset sweep is gated
+behind *canonical-checks?* alongside its F1 siblings — with a canonical
+template the traversal visits exactly the :unset cells and the count
+equality already binds them. A speculative plane-scratch placement
+rewrite measured equal to the assoc-in reduce and was reverted. Final:
+place-data 13.1 → 6.7 ms; matrix-level Version 25 decode reached 36 ms.
