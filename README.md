@@ -1,5 +1,7 @@
 # QRity
 
+[![Clojars Project](https://img.shields.io/clojars/v/com.notnullmakers/qrity.svg)](https://clojars.org/com.notnullmakers/qrity)
+
 QRity is an experimental, from-scratch QR Code generator and reader for Clojure and
 ClojureScript.
 The core is semantically pure: the same immutable input value must produce the
