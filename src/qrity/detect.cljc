@@ -1,4 +1,4 @@
-(ns qrity.detect
+(ns ^:no-doc qrity.detect
   "Pure symbol detection: from a binarized bitmap to a sampled module matrix.
 
   Finder patterns are located by scanning rows for dark/light runs in the

@@ -1,7 +1,5 @@
-(ns qrity.message
-  "Pure provisional QR Code block partitioning and Clause 7.6 interleaving.
-
-  These primitives are not yet wired into the fixed Version 1-M encoder."
+(ns ^:no-doc qrity.message
+  "Pure QR Code block partitioning and Clause 7.6 interleaving."
   (:require [clojure.spec.alpha :as s]
             [qrity.bits :as bits]
             [qrity.parameters :as parameters]

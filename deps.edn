@@ -4,7 +4,16 @@
  {org.clojure/clojure {:mvn/version "1.12.0"}}
 
  :aliases
- {:test
+ {:build
+  {:deps {io.github.clojure/tools.build {:mvn/version "0.10.5"}}
+   :ns-default build}
+
+  :deploy
+  {:extra-deps {slipset/deps-deploy {:mvn/version "0.2.2"}}
+   :main-opts ["-m" "deps-deploy.deps-deploy" "deploy"
+               "target/qrity-0.1.0.jar"]}
+
+  :test
   {:extra-paths ["test"]
    :extra-deps
    {org.clojure/test.check {:mvn/version "1.1.3"}}

@@ -1,4 +1,4 @@
-(ns qrity.plane
+(ns ^:no-doc qrity.plane
   "Packed octet planes: the storage behind pixel-scale image values.
 
   A plane holds one octet (0-255) per element in a platform-packed array —

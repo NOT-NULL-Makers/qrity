@@ -1,4 +1,4 @@
-(ns qrity.matrix
+(ns ^:no-doc qrity.matrix
   "Pure function-pattern templates, placement, masking, and metadata writing."
   (:require [clojure.spec.alpha :as s]
             [qrity.metadata :as metadata]

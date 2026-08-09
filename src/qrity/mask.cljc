@@ -1,4 +1,4 @@
-(ns qrity.mask
+(ns ^:no-doc qrity.mask
   "Pure ordinary-QR mask candidate construction, scoring, and selection."
   (:require [clojure.spec.alpha :as s]
             [qrity.matrix :as matrix]

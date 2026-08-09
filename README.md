@@ -23,6 +23,32 @@ The original fixed Version 1-M walkthrough remains available for studying all se
 ISO/IEC 18004 Clause 7.1 stages. The implementation remains experimental and all
 public APIs are provisional.
 
+## Public API and stability (0.1.x)
+
+The released artifact is `com.notnullmakers/qrity`. The public API is the
+set of namespaces below; everything else is internal (marked `^:no-doc`),
+may change without notice, and should not be required directly:
+
+- `qrity.encode` — generalized generation, including `encode-text`
+- `qrity.walkthrough` — the staged Version 1-M Clause 7.1 teaching pipeline
+- `qrity.scan` — picture decoding (compose with a platform adapter)
+- `qrity.decode` — matrix-level decoding
+- `qrity.image` — luminance-image values and binarization
+- `qrity.image-io` / `qrity.image-canvas` — the JVM and browser pixel adapters
+- `qrity.inspect` — the symbol debugger
+- `qrity.render` — Unicode and Plain PBM renderers
+
+Stability contract for 0.x: public shapes may still change between minor
+versions, with every change recorded in `CHANGELOG.md`. Two conventions
+are settled now and versioned as part of the API: failures are
+`ex-info` values carrying `:qrity/error` (a keyword taxonomy) and, where
+applicable, the ISO/IEC 18004 clause; and the public matrix form is a
+square vector of row vectors of `0`/`1` modules, quiet zone excluded
+(decode input additionally accepts `nil` for unknown modules). The
+supported subset and its limits are documented per feature in this README
+and `docs/decoding-exploration.md`; no ISO/IEC 18004 conformance is
+claimed.
+
 ## Generate a QR Code
 
 The provisional mode-specific entry points are `qrity.encode/encode-numeric`,
@@ -1505,14 +1531,14 @@ them. Each gate must close before the named commitment:
 | Meaning of “pure” for local transients or mutation | Decided 2026-08-07 for pixel planes, generalized 2026-08-09: construction-filled packed octet planes (`qrity.plane`) for large homogeneous octet-valued data — pixel planes, the GF(256) tables, mask flip patterns, and candidate module planes — each filled during construction, immutable once carried by a value, every adoption on measured evidence recorded in `docs/profiling-2026-08-07.md`. Semantic purity still required; heterogeneous values (symbol matrices, codeword vectors) remain immutable persistent vectors, and explicit transients were evaluated and declined | Revisit only with new profiling evidence for a further structure | Extending local mutation beyond construction-filled `qrity.plane` values |
 | Shared `.cljc` boundaries | Preferred hypothesis | Bit/byte/arithmetic parity probes in both runtimes; clarity review | Project skeleton becomes stable |
 | Logical matrix vs required bundled renderers | Open; matrix is authoritative | Consumer needs and Clause 9 obligation map | Stabilizing the public API |
-| Public API and error-return convention | Open | Domain model, invalid-input taxonomy, REPL ergonomics | First public namespace |
+| Public API and error-return convention | Decided for 0.1.x (2026-08-09): the public namespace list and the settled conventions — structured `ex-info` with `:qrity/error` and clause references, keyword error taxonomy — are stated in *Public API and stability* above; 0.x shapes may still evolve with changelog notice | Consumer feedback during 0.x | 1.0 |
 | Widen beyond Numeric mode | Closed for single-segment Alphanumeric and default-ECI Byte; Micro QR, Kanji, and non-default ECI remain excluded | Working Numeric baseline, explicit human scope decisions, feature-specific standard maps, and independent decoder evidence were supplied | Reopen before any additional mode or symbology work |
 | Caller-supplied segments, versions, and masks | Open | Testing needs, supported-subset semantics, API complexity | Automatic planning API |
-| Stable matrix representation | Initial construction uses row-major vectors with rich cell states; public form open | Placement/reservation property prototypes and consumer experience | Stabilizing the matrix API |
+| Stable matrix representation | Public form decided for 0.1.x: square vectors of row vectors of 0/1 modules, quiet zone excluded, `nil` accepted on decode input for unknown modules; construction-internal representations (keyword cells, packed planes) remain internal | Consumer experience during 0.x | 1.0 |
 | Spec-generator and property-test dependencies | Phase 0 decided: `test.check` 1.1.3 | Shared generated tests pass on JVM and Node; revisit compatibility and shrinking quality before changing dependencies | Any dependency change or stable release |
 | Fixture/table storage and validation | Open | Double-entry/table consistency experiment | Standards constants are frozen |
-| Supported language and host versions | Open | CI/runtime availability and compatibility policy | First release |
-| First-release renderer set | Open | Matrix API experience and interoperability harness needs | Release scope |
+| Supported language and host versions | Pinned for 0.1.0: Clojure 1.12 / ClojureScript 1.12.145, exercised by CI on JDK 11, 17, and 21 with Node 20 for the ClojureScript suite (`.github/workflows/ci.yml`); local evidence predates the first CI run | Green CI history across the matrix | Widening or narrowing the claim |
+| First-release renderer set | Decided for 0.1.0: terminal Unicode and Plain PBM (both with reflectance-reversed rendering); bitmap/DOM output stays with the consumer via the matrix or the demonstration site's canvas painter | Consumer demand for further renderers | Adding renderers |
 | Mask-score tie handling | Decided for the provisional API: return all minima and choose the lowest numeric reference for deterministic selection; this is QRity policy, not an ISO rule | Revisit only if authoritative corrigenda or interoperability evidence requires another policy | Stabilizing the public API |
 
 These are design decisions, not gaps to fill with platform defaults.

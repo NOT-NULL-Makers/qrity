@@ -1,4 +1,4 @@
-(ns qrity.plan
+(ns ^:no-doc qrity.plan
   "Optimal mode segmentation and automatic version selection.
 
   Given free text, chooses the cheapest sequence of Numeric, Alphanumeric,

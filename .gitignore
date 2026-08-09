@@ -5,3 +5,4 @@
 __pycache__/
 *.pyc
 /site/public/main.js
+*.swp

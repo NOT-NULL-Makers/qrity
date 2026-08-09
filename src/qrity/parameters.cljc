@@ -1,4 +1,4 @@
-(ns qrity.parameters
+(ns ^:no-doc qrity.parameters
   "Ordinary QR Code parameter catalogue and single-segment capacity selection.
 
   The provisional Numeric, Alphanumeric, and Byte encoders consume these

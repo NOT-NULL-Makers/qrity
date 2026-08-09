@@ -1,4 +1,4 @@
-(ns qrity.metadata
+(ns ^:no-doc qrity.metadata
   "Pure ordinary-QR format and version information calculations."
   (:require [clojure.spec.alpha :as s]
             [qrity.bits :as bits]

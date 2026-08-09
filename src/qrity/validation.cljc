@@ -1,4 +1,4 @@
-(ns qrity.validation
+(ns ^:no-doc qrity.validation
   "Debug gate for internal canonical re-validation.
 
   Boundary functions such as `qrity.matrix/place-data` and

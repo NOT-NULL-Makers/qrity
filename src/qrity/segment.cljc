@@ -1,4 +1,4 @@
-(ns qrity.segment
+(ns ^:no-doc qrity.segment
   "Pure selected-profile single-segment data and codeword construction."
   (:require [clojure.spec.alpha :as s]
             [qrity.bits :as bits]

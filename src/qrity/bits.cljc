@@ -1,4 +1,4 @@
-(ns qrity.bits
+(ns ^:no-doc qrity.bits
   "Pure bit, codeword, and Clause 7.4 payload-packing primitives."
   (:require [clojure.spec.alpha :as s]))
 

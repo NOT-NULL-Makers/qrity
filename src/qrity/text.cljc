@@ -1,4 +1,4 @@
-(ns qrity.text
+(ns ^:no-doc qrity.text
   "Pure UTF-8 transcoding between strings and octet vectors.
 
   Implemented from the code-point definition rather than platform codecs so

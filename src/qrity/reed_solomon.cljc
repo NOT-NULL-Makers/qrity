@@ -1,4 +1,4 @@
-(ns qrity.reed-solomon
+(ns ^:no-doc qrity.reed-solomon
   (:require [qrity.plane :as plane]))
 
 ;; ISO/IEC 18004:2015, Clause 7.5.2: x^8 + x^4 + x^3 + x^2 + 1.
