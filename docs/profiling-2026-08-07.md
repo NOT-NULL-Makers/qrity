@@ -275,3 +275,28 @@ candidate materializations are now ~65 % of encode on the JVM
 win is the stable-API-phase redesign (score from the placed matrix and
 the mask condition without materializing candidates), not another
 local optimization. Nothing else stands out on either runtime.
+
+## Finding 4 closed (2026-08-09, measured)
+
+The candidate-materialization redesign, investigated to ground truth.
+`matrix/candidate-bit-matrix` fuses the staged apply-mask →
+resolve-metadata → final-bit-matrix composition into one pass, pinned
+value-equivalent to the staged path (which remains the walkthrough's
+teaching form and the relational oracle) by a 16-way property test;
+`mask/build-candidate` and decode's reconstruction both use it. The
+measurements overturned the finding's premise: an interleaved JVM A/B
+shows the fusion is a CPU wash (~21–31 vs ~25–28 ms for all eight
+candidates) because the cost was never the extra passes — it is the
+per-data-cell work both designs share, so the originally imagined
+virtual scoring (reading cells through the mask condition without
+materializing) would pay that same cost per read, twice for the two
+scan orientations, and lose. A periodic-pattern variant of the mask
+predicate also measured as a wash. What the fusion does deliver: one
+matrix allocated per candidate instead of three, worth a consistent
+4–5 % of V8 encode in a same-session interleaved A/B (150.5–153.8 vs
+157.5–159.0 ms) where GC carried 7–11 %, plus matrix-level decode 36 →
+33 ms via the shared reconstruction path. The remaining encode floor is
+the persistent-matrix per-cell machinery itself; the next lever, if
+encode speed is ever genuinely needed, is scoring over packed
+bit-planes — a representation change with local-mutation-gate
+implications, recorded here rather than taken.

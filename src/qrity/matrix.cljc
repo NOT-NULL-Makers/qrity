@@ -810,3 +810,58 @@
                                     {:cell cell}))))
                 row))
         matrix))
+
+(defn- metadata-overrides
+  "Final bits for every :reserved metadata cell, keyed by coordinate."
+  [dimension version error-correction-level mask-reference]
+  (let [format-bits (metadata/format-information-bits
+                     error-correction-level
+                     mask-reference)
+        overrides (-> {}
+                      (into (map vector
+                                 primary-format-coordinates
+                                 format-bits))
+                      (into (map vector
+                                 (secondary-format-coordinates-for
+                                  dimension)
+                                 (rseq format-bits))))]
+    (if (or (nil? version) (< version 7))
+      overrides
+      (let [version-bits (vec (rseq (metadata/version-information-bits
+                                     version)))
+            {:keys [top-right bottom-left]}
+            (version-information-placement-coordinates dimension)]
+        (-> overrides
+            (into (map vector top-right version-bits))
+            (into (map vector bottom-left version-bits)))))))
+
+(defn candidate-bit-matrix
+  "One pass from a placed matrix to a level-and-mask's final 0/1 matrix.
+
+  Value-equivalent to `final-bit-matrix` of `resolve-metadata` of
+  `apply-data-mask` — the staged composition remains the walkthrough's
+  teaching path and the relational oracle — but fused, because candidate
+  scoring builds eight of these per symbol and the three full-matrix
+  keyword passes were ~29% of a whole encode. The placed matrix supplies
+  the version; canonical provenance is the caller's obligation, exactly
+  as for the staged functions it replaces."
+  [placed-matrix error-correction-level mask-reference]
+  (let [dimension (count placed-matrix)
+        version (inferred-version placed-matrix)
+        flips? (mask-condition mask-reference)
+        overrides (metadata-overrides dimension
+                                      version
+                                      error-correction-level
+                                      mask-reference)]
+    (mapv (fn [row-index row]
+            (mapv (fn [column-index cell]
+                    (case cell
+                      :dark (if (flips? row-index column-index) 0 1)
+                      :light (if (flips? row-index column-index) 1 0)
+                      :reserved-dark 1
+                      :reserved-light 0
+                      :reserved (overrides [row-index column-index])))
+                  (range)
+                  row))
+          (range)
+          placed-matrix)))

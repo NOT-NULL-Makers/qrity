@@ -1,7 +1,9 @@
 (ns qrity.matrix-test
   (:require [clojure.spec.alpha :as s]
             [qrity.matrix :as matrix]
+            [qrity.message :as message]
             [qrity.parameters :as parameters]
+            [qrity.segment :as segment]
             #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])))
 
@@ -328,3 +330,30 @@
             (assoc-in [1 1] :reserved-dark))]
     (is (s/valid? ::matrix/function-matrix valid))
     (is (not (s/valid? ::matrix/function-matrix corrupted)))))
+
+(deftest candidate-bit-matrix-equals-the-staged-composition
+  ;; The fused scoring path must stay value-equivalent to the staged
+  ;; teaching path for every mask, both levels probed, and versions on
+  ;; both sides of the version-information boundary.
+  (doseq [[version level payload]
+          [[2 :m "86753090000000000000000000000000000"]
+           [9 :h (apply str (take 220 (cycle "0123456789")))]]]
+    (let [template (matrix/function-matrix version)
+          message-bits (:message-bits
+                        (message/construct-final-message
+                         (segment/numeric-data-codewords
+                          payload version level)
+                         version
+                         level))
+          placed (:matrix (matrix/place-data template message-bits))]
+      (doseq [mask-reference (range 8)]
+        (testing (str "version " version " level " level
+                      " mask " mask-reference)
+          (is (= (matrix/final-bit-matrix
+                  (matrix/resolve-metadata
+                   (matrix/apply-data-mask placed mask-reference)
+                   level
+                   mask-reference))
+                 (matrix/candidate-bit-matrix placed
+                                              level
+                                              mask-reference))))))))

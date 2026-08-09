@@ -326,12 +326,9 @@
         error-correction-level
         (:error-correction-level final-message)
         bit-matrix
-        (-> (:matrix placement)
-            (matrix/apply-data-mask mask-reference)
-            (matrix/resolve-metadata
-             error-correction-level
-             mask-reference)
-            matrix/final-bit-matrix)
+        (matrix/candidate-bit-matrix (:matrix placement)
+                                     error-correction-level
+                                     mask-reference)
         penalties (penalty-components bit-matrix)]
     {:version version
      :error-correction-level error-correction-level

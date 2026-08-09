@@ -623,11 +623,9 @@
         placed (:matrix (matrix/place-data
                          (matrix/function-matrix version)
                          message-bits))]
-    (matrix/final-bit-matrix
-     (matrix/resolve-metadata
-      (matrix/apply-data-mask placed mask-reference)
-      error-correction-level
-      mask-reference))))
+    (matrix/candidate-bit-matrix placed
+                                 error-correction-level
+                                 mask-reference)))
 
 (defn decode-matrix
   "Decodes a resolved 0/1 ordinary-QR module matrix back to its payload.
