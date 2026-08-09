@@ -300,3 +300,23 @@ the persistent-matrix per-cell machinery itself; the next lever, if
 encode speed is ever genuinely needed, is scoring over packed
 bit-planes — a representation change with local-mutation-gate
 implications, recorded here rather than taken.
+
+Bit-plane candidate sketch (2026-08-09, design only): if the recorded
+lever is ever taken, candidates become qrity.plane values (byte per
+module, the decode bitmap's existing representation) built by array
+composition — base XOR (region AND flip-mask) plus metadata override
+bytes — with the eight Table 10 flip patterns memoized per dimension
+like the templates and traversal, deleting the per-cell mask predicate
+that finding 4 identified as the shared floor. Scorers gain internal
+plane-reading forms with the public vector scorers retained as
+relational oracle and teaching form (the staged-vs-fused pattern);
+only the winning plane converts to the public vector matrix, so the
+symbol value is unchanged. Costs: equivalence-tested scorer
+duplication, plane-aware candidate predicates, and one deliberate gate
+rewording from "pixel planes" to construction-filled packed octet
+planes generally. Out of scope: unifying the decoder's sampled matrix
+(its nil-for-unknown contract would need a sentinel). ~150-250 lines;
+estimated ~2x encode with V8 gaining more via GC — estimates to be
+verified by interleaved same-session A/Bs on both runtimes, per the
+house method. Trigger unchanged: a consumer for whom current encode
+times are too slow.
