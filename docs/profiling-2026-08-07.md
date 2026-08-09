@@ -178,3 +178,24 @@ cross-check share falling ~28 % → ~17 % and the alignment search
 being finding 4's candidate materialization. Two of five items were
 JVM-neutral and V8-ranked — the runtimes no longer agree the way the
 first profile round did, so future work must re-profile both.
+
+## matrix.cljc and render-pbm session (2026-08-09, measured)
+
+Answering "can matrix.cljc get faster without the split": the stage
+predicates are two tiers — always-on cheap input validation (bit shape,
+counts, mask-reference validity; the explicit error model, trivial
+cost) and canonical re-validation gated behind
+`qrity.validation/*canonical-checks?*`, which is off outside tests and
+already costs production nothing. Work taken: the Table 10 flip
+predicate resolves once per mask application instead of dispatching per
+module (V25 masking 3.10 → 2.41 ms, ~14 ms per large-symbol encode
+across eight candidates), and `render-pbm` assembles its raster from
+once-built run and row strings sliced into PBM lines with `subs` — pure
+persistent construction, byte-identical output pinned by the exact-
+string tests, 205 → 9.2 ms at Version 25 scale 8 (22×). Left measured
+but untouched: `place-data`'s per-bit assoc-in construction (13 ms,
+once per symbol) — and the session's discovery: `construct-final-
+message` costs ~69 ms on a Version 25 symbol, almost entirely bit-loop
+`gf-multiply` under parity generation, which promotes the recorded
+table-lookup lever from "if RS speed ever matters" to the dominant
+large-symbol encode cost, ahead of finding 4.
