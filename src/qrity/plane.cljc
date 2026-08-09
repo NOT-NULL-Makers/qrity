@@ -27,9 +27,13 @@
      :cljs (.-length plane)))
 
 (defn value-at
-  "The octet (0-255) at `index`."
+  "The octet (0-255) at `index`.
+
+  The JVM index cast is unchecked: a checked long→int conversion inside
+  this accessor measured 5-8× on read-heavy paths once planes carried
+  them, and `aget` itself still bounds-checks every access."
   [plane index]
-  #?(:clj (bit-and (aget ^bytes plane index) 255)
+  #?(:clj (bit-and (aget ^bytes plane (unchecked-int index)) 255)
      :cljs (aget plane index)))
 
 (defn put!
@@ -38,7 +42,8 @@
   Construction-time only: a plane already carried by an image value is
   never mutated."
   [plane index value]
-  #?(:clj (aset ^bytes plane index (unchecked-byte value))
+  #?(:clj (aset ^bytes plane (unchecked-int index)
+                (unchecked-byte value))
      :cljs (aset plane index value))
   plane)
 

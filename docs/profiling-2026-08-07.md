@@ -343,3 +343,22 @@ end-to-end encode ~51 ms; V8 shipped-artifact encode 143–148 →
 147 → 138 ms via the shared reconstruction path. The sketch's ~2×
 estimate, made before building, landed within range on V8 and
 undershot on the JVM — planes pay most where boxing and GC did.
+
+## Post-bit-plane sweep (2026-08-09, measured)
+
+Fresh profiles after the candidate-plane work found exactly one new
+obvious item, created by the work itself: with planes now carrying the
+hot paths, the checked long→int index cast inside plane/value-at's aget
+surfaced at 16.7 % of JVM encode self-time (Math.toIntExact). A direct
+micro A/B measured the accessor at 5-8× (100k reads, 1.1-1.3 ms
+checked vs 0.13-0.22 ms unchecked); the fix is unchecked-int in
+value-at and put!, safe because aget itself still bounds-checks and
+indexes are in-range by construction. Version 25 encode 51 → 47 ms;
+decode within its noise band; ClojureScript untouched (its aget has no
+such cast). Beyond that the sweep confirms closure: JVM decode remains
+the gated primitive-math bucket in the binarizer's inner loops; JVM
+encode is now plane scoring (53 %) plus parity generation (18 %) —
+both already on their fastest recorded designs; V8 encode splits
+between plane scorers, message construction, and Reed-Solomon
+polynomial arithmetic with no unexplained frame. Nothing else remains
+that is both obvious and unclaimed.
