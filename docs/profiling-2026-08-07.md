@@ -362,3 +362,40 @@ both already on their fastest recorded designs; V8 encode splits
 between plane scorers, message construction, and Reed-Solomon
 polynomial arithmetic with no unexplained frame. Nothing else remains
 that is both obvious and unclaimed.
+
+## Historical perspective: why 1994 hand-scanners were fast (2026-08-09)
+
+The performance chapter's gap to single-digit-millisecond hardware
+decoders decomposes without mystery, and it is worth recording because
+the decomposition doubles as an explanation of the standard itself. The
+1994 hardware was not fast — the symbol was designed backwards from its
+weakness. The 1:1:3:1:1 finder ratio was chosen as the run pattern least
+likely in ordinary print *and* detectable along any straight line during
+a plain raster readout, so a five-register run tracker finds candidates
+with no 2D processing; the timing patterns are grid-mapping aids for
+processors that could not afford a homography. Every optimization that
+survived this chapter's measured-and-interleaved discipline — the
+sliding run scan, module size along the symbol's own axes, ROM-style
+GF(256) tables, packed byte planes — converged on what Denso's engineers
+did first, because the symbol has been telling every implementer the
+same thing since 1994.
+
+The remaining gap in numbers: ~10× pixel budget (1990s scanners imaged
+0.1–0.3 Mpx with controlled illumination and hardware thresholding —
+often emitting run-length streams directly — where this pipeline accepts
+arbitrary 1 Mpx photographs and pays ~65 % of its decode for adaptive
+binarization the fixed-mount scanner never needed); managed-runtime
+arithmetic (the residual boxed-equality self-time, gated here for
+readability, is precisely the cost of not writing 1994 firmware);
+and generality — mirror/inversion retries, the alignment grid, erasure
+bookkeeping. Scanners also stream frames and need any one to succeed,
+which camera scanners inherit as region-of-interest tracking over
+downscaled frames — a pipeline-entry decision, noted in the jsQR
+comparison, not an inner-loop one. Embedded C decoders still reach
+single-digit milliseconds today by the same recipe: small versions,
+small pixel budgets, integer arithmetic, static buffers. Encoding was
+never the hard side in any era: no image, table lookups, parity over
+dozens of codewords — largely done offline on PCs and printer
+controllers — with the standard's mandatory eight-candidate mask
+scoring the priciest part then as now, which is where this chapter's
+final 2× came from too.

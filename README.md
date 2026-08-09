@@ -584,6 +584,13 @@ distortions and one foreign encoder so far, not yet real photographs — and the
 decoding decision gates live in `docs/decoding-exploration.md`; the cross-decoder
 mangling harness is `scripts/mangle_and_verify.py`.
 
+Performance work is measured, not assumed: `docs/profiling-2026-08-07.md`
+records every optimization with its before/after numbers on both runtimes,
+the rejected alternatives with their measurements, the profiling method
+(flamegraphs, source-map-translated V8 profiles, interleaved same-session
+comparisons), and a closing historical perspective on why the symbol's
+1994 design keeps rediscovering itself in any honest optimization pass.
+
 `qrity.inspect` is the symbol debugger: `symbol-properties`/`describe-symbol`
 report everything a symbol declares, and `explain-module`/`describe-module` state
 exactly what one module contributes — down to which bit of which codeword in which
