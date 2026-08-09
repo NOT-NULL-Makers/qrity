@@ -4,7 +4,7 @@ All notable changes to `com.notnullmakers/qrity`. During 0.x, public
 shapes may change between minor versions; every such change is recorded
 here.
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-08-10
 
 First published version. Experimental; no ISO/IEC 18004 conformance
 claim. The public API is the namespace list in the README's *Public API
