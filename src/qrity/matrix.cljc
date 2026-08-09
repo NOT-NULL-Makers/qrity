@@ -533,23 +533,33 @@
    (when-let [version (inferred-version value)]
      (metadata-ready-matrix-for-version? value version))))
 
+(defn- mask-condition
+  "The Table 10 flip predicate for one mask reference.
+
+  Resolved once per mask application: the eight-way dispatch runs per
+  reference instead of per module, which matters because candidate
+  scoring masks the whole matrix eight times per symbol."
+  [mask-reference]
+  (case mask-reference
+    0 (fn [row column] (even? (+ row column)))
+    1 (fn [row _column] (even? row))
+    2 (fn [_row column] (zero? (mod column 3)))
+    3 (fn [row column] (zero? (mod (+ row column) 3)))
+    4 (fn [row column] (even? (+ (quot row 2)
+                                 (quot column 3))))
+    5 (fn [row column] (let [product (* row column)]
+                         (zero? (+ (mod product 2)
+                                   (mod product 3)))))
+    6 (fn [row column] (let [product (* row column)]
+                         (even? (+ (mod product 2)
+                                   (mod product 3)))))
+    7 (fn [row column] (even? (+ (mod (+ row column) 2)
+                                 (mod (* row column) 3))))))
+
 (defn data-mask-condition?
   "True when the Table 10 mask flips the module at [row column]."
   [mask-reference row column]
-  (let [product (* row column)]
-    (case mask-reference
-      0 (even? (+ row column))
-      1 (even? row)
-      2 (zero? (mod column 3))
-      3 (zero? (mod (+ row column) 3))
-      4 (even? (+ (quot row 2)
-                  (quot column 3)))
-      5 (zero? (+ (mod product 2)
-                  (mod product 3)))
-      6 (even? (+ (mod product 2)
-                  (mod product 3)))
-      7 (even? (+ (mod (+ row column) 2)
-                  (mod product 3))))))
+  ((mask-condition mask-reference) row column))
 
 (defn- toggle-module
   [cell]
@@ -557,21 +567,23 @@
 
 (defn- apply-data-mask*
   [matrix mask-reference]
-  (mapv
-   (fn [row-index row]
-     (mapv
-      (fn [column-index cell]
-        (if (and (#{:light :dark} cell)
-                 (data-mask-condition?
-                  mask-reference
-                  row-index
-                  column-index))
-          (toggle-module cell)
-          cell))
-      (range)
-      row))
-   (range)
-   matrix))
+  (let [flips? (mask-condition mask-reference)]
+    (mapv
+     (fn [row-index row]
+       (mapv
+        (fn [column-index cell]
+          ;; case, not identical?: ClojureScript keywords are only
+          ;; interned under optimized builds, so identity comparison
+          ;; silently skips cells there. The cljs suite caught this.
+          (case cell
+            (:light :dark) (if (flips? row-index column-index)
+                             (toggle-module cell)
+                             cell)
+            cell))
+        (range)
+        row))
+     (range)
+     matrix)))
 
 (defn apply-data-mask
   "Applies one explicit Table 10 mask as a reversible encoding-region transform.
