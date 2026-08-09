@@ -1,0 +1,3 @@
+[submodule "clj-png-adapter"]
+	path = clj-png-adapter
+	url = ../clj-png-adapter.git

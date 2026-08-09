@@ -657,14 +657,24 @@ nbb --classpath "$(clojure -Spath -Sdeps \
   '{:deps {com.notnullmakers/qrity {:mvn/version "0.1.0"}}}')" -e "..."
 ```
 
-What does not work is pixel acquisition. The bundled adapters need JVM
-`javax.imageio` — absent from Babashka's native image, as is all of
-`java.awt` — or a browser Canvas, absent from Node. Reading a PNG or JPEG
-file therefore stays with the caller: convert to a trivially parseable
-format first (for example `magick photo.png photo.pgm`), or decode with a
-pure-JavaScript npm library under nbb, and hand the gray values to
-`qrity.image/luminance-image`. Everything from that point on is the same
-pure pipeline the JVM and the browser use.
+What does not work out of the box is pixel acquisition. The bundled
+adapters need JVM `javax.imageio` — absent from Babashka's native image,
+as is all of `java.awt` — or a browser Canvas, absent from Node. Reading
+a PNG or JPEG file therefore stays with the caller: convert to a
+trivially parseable format first (for example `magick photo.png
+photo.pgm`), or decode with a pure-JavaScript npm library under nbb, and
+hand the gray values to `qrity.image/luminance-image`.
+
+For PNG specifically, the [clj-png-adapter](clj-png-adapter/) submodule
+closes the gap without leaving either runtime's ecosystem subset: a
+standards-derived PNG decoder (W3C REC-png-3-20250624) that delegates
+only zlib inflation to the platform (`java.util.zip.Inflater`, which
+Babashka ships; Node's `zlib` under nbb). A 296×296 PNG QR symbol
+decodes end to end through `png-adapter.decode/luminance-octets` →
+`qrity.image/luminance-image` → `qrity.scan/decode-luminance-image` on
+both runtimes. The adapter is its own project with its own fixtures and
+`javax.imageio` differential evidence; neither library depends on the
+other as a code dependency, and the seam is one plain data value.
 
 ## Goals
 
