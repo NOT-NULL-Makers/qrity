@@ -126,31 +126,37 @@
      (invalid-input! :pbm :invalid-pixel-scale pixel-scale))
    (when-not (nat-int? quiet-zone)
      (invalid-input! :pbm :invalid-quiet-zone quiet-zone))
-   (let [quiet-pixel (if inverted? 1 0)
-         module-pixel (fn [module]
-                        (if inverted? (- 1 module) module))
-         quiet-pixels (* quiet-zone pixel-scale)
+   ;; The raster assembles from strings built once — a run per module, a
+   ;; row per matrix row — so host string concatenation does the copying
+   ;; instead of millions of single-digit lazy-sequence elements. The PBM
+   ;; line wrap ignores raster rows, so lines are sliced from the joined
+   ;; raster afterwards.
+   (let [dark-run (apply str (repeat pixel-scale (if inverted? \0 \1)))
+         light-run (apply str (repeat pixel-scale (if inverted? \1 \0)))
+         quiet-run (apply str (repeat (* quiet-zone pixel-scale)
+                                      (if inverted? \1 \0)))
          pixel-count (* (+ (count matrix) (* 2 quiet-zone))
                         pixel-scale)
-         empty-row (repeat pixel-count quiet-pixel)
-         data-rows
-         (mapcat
-          (fn [row]
-            (let [scaled-row
-                  (concat
-                   (repeat quiet-pixels quiet-pixel)
-                   (mapcat #(repeat pixel-scale (module-pixel %)) row)
-                   (repeat quiet-pixels quiet-pixel))]
-              (repeat pixel-scale scaled-row)))
-          matrix)
+         quiet-row (apply str (repeat pixel-count (if inverted? \1 \0)))
+         data-row (fn [row]
+                    (str quiet-run
+                         (apply str (mapv #(if (= 1 %) dark-run light-run)
+                                          row))
+                         quiet-run))
          raster
-         (mapcat identity
-                 (concat (repeat quiet-pixels empty-row)
-                         data-rows
-                         (repeat quiet-pixels empty-row)))
+         (apply str
+                (concat (repeat (* quiet-zone pixel-scale) quiet-row)
+                        (mapcat (fn [row]
+                                  (repeat pixel-scale (data-row row)))
+                                matrix)
+                        (repeat (* quiet-zone pixel-scale) quiet-row)))
          raster-lines
-         (map #(apply str %)
-              (partition-all plain-pbm-line-length raster))]
+         (map (fn [line-start]
+                (subs raster
+                      line-start
+                      (min (count raster)
+                           (+ line-start plain-pbm-line-length))))
+              (range 0 (count raster) plain-pbm-line-length))]
      (str "P1\n"
           pixel-count " " pixel-count "\n"
           (string/join "\n" raster-lines)
