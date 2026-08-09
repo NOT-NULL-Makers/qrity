@@ -53,7 +53,12 @@
      :cljs (instance? js/Uint8Array value)))
 
 (defn from-values
-  "Builds a plane from a finite sequence of octets, validating the range."
+  "Builds a plane from a finite sequence of octets, validating the range.
+
+  Validation is per element; bulk constructors on hot paths (the platform
+  adapters, binarization) build via `blank` and `put!` instead, whose
+  writes truncate rather than check — profiled: this constructor over a
+  megapixel sequence is visible, `blank`/`put!` construction is not."
   [octet-values]
   (let [octets (vec octet-values)
         plane (blank (count octets))]

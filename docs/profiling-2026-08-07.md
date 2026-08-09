@@ -1,5 +1,13 @@
 # Profiling findings — 2026-08-07, encode and decode
 
+> **How to read this document:** it is an append-only chronicle of the
+> performance work, in order. Later sections supersede earlier ones —
+> the opening hotspot table and the first "non-findings" reflect the
+> codebase before the optimization series, and each dated section
+> records what changed and what was measured. For the current state,
+> read the last few sections; for how any number came to be, read
+> forward from here.
+
 > **Status update (same day):** items 1–3 below are implemented; the
 > after-numbers are recorded next to each. Item 4 and the accepted
 > non-findings stand.
