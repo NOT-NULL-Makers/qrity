@@ -625,6 +625,47 @@ exactly what one module contributes — down to which bit of which codeword in w
 block, and which field of which segment it lands in. A static demonstration page
 (generation, upload reading, and the inspector's report) lives under `site/`.
 
+## Babashka and nbb
+
+The pure core runs unmodified under the scripting runtimes (verified with
+Babashka v1.12.218 and nbb v1.5.211): both interpret the same shared
+sources, including the packed `qrity.plane` octet planes and the
+`clojure.spec` vocabulary. The verified surface is an encode → damage →
+`decode-matrix` round trip through the UTF-8/ECI planner, the full pure
+picture pipeline (`qrity.image/luminance-image` →
+`qrity.scan/decode-luminance-image` over caller-supplied pixels), the
+renderers, and the `qrity.inspect` reports — all with results identical
+to each other and to the compiled runtimes.
+
+From a checkout:
+
+```bash
+bb -cp src -e "
+(require '[qrity.encode :as encode] '[qrity.render :as render])
+(println (render/render-unicode (:matrix (encode/encode-text \"https://example.com\" :m))))"
+
+nbb --classpath src -e "..."        # the same expression
+```
+
+From the released artifact — Babashka resolves Maven coordinates itself,
+and nbb accepts a classpath computed by the Clojure CLI:
+
+```bash
+bb -Sdeps '{:deps {com.notnullmakers/qrity {:mvn/version "0.1.0"}}}' -e "..."
+
+nbb --classpath "$(clojure -Spath -Sdeps \
+  '{:deps {com.notnullmakers/qrity {:mvn/version "0.1.0"}}}')" -e "..."
+```
+
+What does not work is pixel acquisition. The bundled adapters need JVM
+`javax.imageio` — absent from Babashka's native image, as is all of
+`java.awt` — or a browser Canvas, absent from Node. Reading a PNG or JPEG
+file therefore stays with the caller: convert to a trivially parseable
+format first (for example `magick photo.png photo.pgm`), or decode with a
+pure-JavaScript npm library under nbb, and hand the gray values to
+`qrity.image/luminance-image`. Everything from that point on is the same
+pure pipeline the JVM and the browser use.
+
 ## Goals
 
 - Generate standards-derived QR Code symbols on the JVM and in JavaScript from one
