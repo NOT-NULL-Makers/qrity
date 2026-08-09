@@ -215,3 +215,23 @@ template the traversal visits exactly the :unset cells and the count
 equality already binds them. A speculative plane-scratch placement
 rewrite measured equal to the assoc-in reduce and was reverted. Final:
 place-data 13.1 → 6.7 ms; matrix-level Version 25 decode reached 36 ms.
+
+## Transients deliberation (2026-08-09, measured)
+
+Whether reduce + transient/persistent! should join the toolbox for
+building large structures. Ceiling measurement (1M-element pure vector
+build): plain conj 56 ms, explicit transient 23 ms — and `into` 13 ms,
+beating the hand-written transient because it is transient-backed *and*
+chunk-aware; the idiomatic form wins its own microbenchmark. At this
+codebase's actual build sizes the question dissolves — verified by a
+direct trial, not only shape emulation: a transient-built black-point
+vector swapped into the real 1 Mpx adaptive binarization and measured
+interleaved after warming both variants showed 1–2 ms against ~83 ms in
+two rounds and nothing in the third (≤2 %, edge of noise; outputs
+identical), and codeword interleaving (~1.3k elements) emulates at
+16 µs per large-symbol encode. The only million-element builds are the pixel
+planes, already packed arrays. Disposition: no explicit transients and
+no local-mutation-gate extension — prefer `into`/`mapv` (transient-
+backed internally) over reduce-conj where a seq source exists, which
+recent rewrites already do. Revisit only if a new structure appears
+that is built in the hundreds of thousands of elements per operation.
