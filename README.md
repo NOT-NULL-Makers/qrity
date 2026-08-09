@@ -669,12 +669,16 @@ For PNG specifically, the [clj-png-adapter](clj-png-adapter/) submodule
 closes the gap without leaving either runtime's ecosystem subset: a
 standards-derived PNG decoder (W3C REC-png-3-20250624) that delegates
 only zlib inflation to the platform (`java.util.zip.Inflater`, which
-Babashka ships; Node's `zlib` under nbb). A 296×296 PNG QR symbol
-decodes end to end through `png-adapter.decode/luminance-octets` →
-`qrity.image/luminance-image` → `qrity.scan/decode-luminance-image` on
-both runtimes. The adapter is its own project with its own fixtures and
-`javax.imageio` differential evidence; neither library depends on the
-other as a code dependency, and the seam is one plain data value.
+Babashka ships; Node's `zlib` under nbb). The adapter stays generic —
+raw interleaved samples out, nothing qrity-specific — and
+`qrity.image/interleaved->luminance-image` consumes that layout
+directly with the same BT.601 weights the bundled adapters use. A
+296×296 PNG QR symbol decodes end to end through
+`png-adapter.decode/decode-octets` → `interleaved->luminance-image` →
+`qrity.scan/decode-luminance-image` on both runtimes. The adapter is
+its own project with its own fixtures and `javax.imageio` differential
+evidence; neither library depends on the other, and the seam is one
+plain data value.
 
 ## Goals
 

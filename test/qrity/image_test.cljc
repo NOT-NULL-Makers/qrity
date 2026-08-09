@@ -72,3 +72,39 @@
       (is (< 100 (disagreements global))))
     (testing "local black points recover the true modules"
       (is (zero? (disagreements adaptive))))))
+
+(defn- luminance-values
+  [image]
+  (plane/values (:luminance image)))
+
+(deftest interleaved-samples-flatten-to-luminance
+  (testing "one channel passes grey through"
+    (is (= [10 20 30 40]
+           (luminance-values
+            (image/interleaved->luminance-image 2 2 1 [10 20 30 40])))))
+  (testing "two channels keep grey and ignore alpha"
+    (is (= [10 20]
+           (luminance-values
+            (image/interleaved->luminance-image 2 1 2 [10 255 20 0])))))
+  (testing "three channels apply the BT.601 integer weights"
+    (is (= [(quot (+ (* 299 200) (* 587 100) (* 114 50)) 1000) 0 255]
+           (luminance-values
+            (image/interleaved->luminance-image
+             3 1 3 [200 100 50 0 0 0 255 255 255])))))
+  (testing "four channels agree with three and ignore alpha"
+    (is (= (luminance-values
+            (image/interleaved->luminance-image 1 1 3 [200 100 50]))
+           (luminance-values
+            (image/interleaved->luminance-image 1 1 4 [200 100 50 7]))))))
+
+(deftest interleaved-samples-validate-shape
+  (testing "an unknown channel count"
+    (is (= :invalid-channel-count
+           (:qrity/error
+            (exception-data
+             #(image/interleaved->luminance-image 1 1 5 [1 2 3 4 5]))))))
+  (testing "a sample count that does not match the dimensions"
+    (is (= :invalid-sample-count
+           (:qrity/error
+            (exception-data
+             #(image/interleaved->luminance-image 2 2 3 [1 2 3])))))))

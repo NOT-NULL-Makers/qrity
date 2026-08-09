@@ -53,6 +53,42 @@
               :octet-count (plane/length luminance)}))
     image))
 
+(defn interleaved->luminance-image
+  "Builds a luminance image from channel-interleaved octet samples.
+
+  Accepts the plain sample layout image decoders naturally produce:
+  row-major pixels carrying 1 (grey), 2 (grey, alpha), 3 (red, green,
+  blue), or 4 (red, green, blue, alpha) octets per pixel — the
+  serialization Canvas `ImageData` and PNG share. Colour flattens with
+  the same ITU-R BT.601 integer weights the platform adapters use, so
+  any decoder handing samples through here is interchangeable with
+  them. Alpha is ignored, not composited."
+  [width height channels samples]
+  (when-not (contains? #{1 2 3 4} channels)
+    (fail! :invalid-channel-count
+           "Interleaved samples must carry 1, 2, 3, or 4 octets per pixel"
+           {:channels channels}))
+  (let [samples (vec samples)
+        pixel-count (* width height)]
+    (when (not= (count samples) (* pixel-count channels))
+      (fail! :invalid-sample-count
+             "Sample count must equal width times height times channels"
+             {:width width
+              :height height
+              :channels channels
+              :sample-count (count samples)}))
+    (let [luminance (plane/blank pixel-count)]
+      (dotimes [pixel-index pixel-count]
+        (let [offset (* channels pixel-index)]
+          (plane/put! luminance pixel-index
+                      (if (< channels 3)
+                        (samples offset)
+                        (quot (+ (* 299 (samples offset))
+                                 (* 587 (samples (inc offset)))
+                                 (* 114 (samples (+ offset 2))))
+                              1000)))))
+      (luminance-image width height luminance))))
+
 (s/def ::luminance-image luminance-image?)
 
 (def minimum-contrast
