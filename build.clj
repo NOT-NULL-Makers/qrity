@@ -45,6 +45,9 @@
   (b/copy-file {:src "LICENSE" :target (str class-dir "/LICENSE")})
   (b/copy-file {:src "README.md" :target (str class-dir "/README.md")})
   (b/jar {:class-dir class-dir :jar-file jar-file})
+  ;; deps-deploy reads pom.xml from the working directory, not the jar.
+  (b/copy-file {:src (b/pom-path {:class-dir class-dir :lib lib})
+                :target "pom.xml"})
   (println "built" jar-file))
 
 (defn install [_]
