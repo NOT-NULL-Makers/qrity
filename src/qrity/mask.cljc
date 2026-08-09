@@ -4,6 +4,7 @@
             [qrity.matrix :as matrix]
             [qrity.message :as message]
             [qrity.parameters :as parameters]
+            [qrity.plane :as plane]
             [qrity.validation :as validation]))
 
 (def penalty-keys
@@ -436,16 +437,168 @@
               (filter #(= minimum (:total-penalty %)))
               candidates)))))
 
+;; ---------------------------------------------------------------------------
+;; Plane-based scoring
+;;
+;; Selection composes and scores candidates as `qrity.plane` module planes:
+;; base XOR (region AND flip-mask) per reference, with the four Table 11
+;; scorers reading primitive bytes through strided lines. The public
+;; vector scorers above remain the relational oracle and teaching form;
+;; equivalence is pinned by the selection-equivalence test. Only the
+;; winning plane converts to the public vector matrix.
+
+(defn- plane-line-run-penalty
+  [module-plane line-base stride length]
+  (loop [position 1
+         previous (plane/value-at module-plane line-base)
+         run-length 1
+         penalty 0]
+    (if (= position length)
+      (+ penalty (if (< run-length 5) 0 (- run-length 2)))
+      (let [cell (plane/value-at module-plane
+                                 (+ line-base (* stride position)))]
+        (if (= cell previous)
+          (recur (inc position) previous (inc run-length) penalty)
+          (recur (inc position) cell 1
+                 (+ penalty (if (< run-length 5)
+                              0
+                              (- run-length 2)))))))))
+
+(defn- plane-light-run?
+  [module-plane line-base stride from to]
+  (loop [position from]
+    (cond
+      (= position to) true
+      (zero? (plane/value-at module-plane
+                             (+ line-base (* stride position))))
+      (recur (inc position))
+      :else false)))
+
+(defn- plane-finder-like-line-count
+  [module-plane line-base stride length]
+  (let [cell (fn [position]
+               (plane/value-at module-plane
+                               (+ line-base (* stride position))))]
+    (loop [start 0
+           found 0]
+      (if (> start (- length 7))
+        found
+        (recur (inc start)
+               (if (and (= 1 (cell start))
+                        (= 0 (cell (+ start 1)))
+                        (= 1 (cell (+ start 2)))
+                        (= 1 (cell (+ start 3)))
+                        (= 1 (cell (+ start 4)))
+                        (= 0 (cell (+ start 5)))
+                        (= 1 (cell (+ start 6)))
+                        (or (plane-light-run? module-plane line-base
+                                              stride
+                                              (max 0 (- start 4)) start)
+                            (plane-light-run? module-plane line-base
+                                              stride
+                                              (+ start 7)
+                                              (min length (+ start 11)))))
+                 (inc found)
+                 found))))))
+
+(defn- plane-both-orientations
+  [module-plane dimension line-score]
+  (loop [line 0
+         total 0]
+    (if (= line dimension)
+      total
+      (recur (inc line)
+             (+ total
+                (line-score module-plane (* line dimension) 1 dimension)
+                (line-score module-plane line dimension dimension))))))
+
+(defn- plane-blocks-penalty
+  [module-plane dimension]
+  (* 3
+     (loop [row 0
+            blocks 0]
+       (if (= row (dec dimension))
+         blocks
+         (recur (inc row)
+                (loop [column 0
+                       blocks blocks]
+                  (if (= column (dec dimension))
+                    blocks
+                    (let [index (+ (* row dimension) column)
+                          cell (plane/value-at module-plane index)]
+                      (recur (inc column)
+                             (if (and (= cell (plane/value-at
+                                               module-plane (inc index)))
+                                      (= cell (plane/value-at
+                                               module-plane
+                                               (+ index dimension)))
+                                      (= cell (plane/value-at
+                                               module-plane
+                                               (+ index dimension 1))))
+                               (inc blocks)
+                               blocks))))))))))
+
+(defn- plane-dark-proportion-penalty
+  [module-plane dimension]
+  (let [total (* dimension dimension)
+        dark (loop [index 0
+                    dark 0]
+               (if (= index total)
+                 dark
+                 (recur (inc index)
+                        (+ dark (plane/value-at module-plane index)))))]
+    (* 10
+       (quot (abs (- (* 20 dark) (* 10 total)))
+             total))))
+
+(defn- plane-penalty-components
+  [module-plane dimension]
+  {:same-color-runs
+   (plane-both-orientations module-plane dimension plane-line-run-penalty)
+   :same-color-blocks
+   (plane-blocks-penalty module-plane dimension)
+   :finder-like-patterns
+   (* 40 (plane-both-orientations module-plane dimension
+                                  plane-finder-like-line-count))
+   :dark-proportion
+   (plane-dark-proportion-penalty module-plane dimension)})
+
 (defn select-best-candidate
-  "Builds all candidates and returns a global minimum.
+  "Composes and scores all eight candidates, returning a global minimum.
 
   ISO/IEC 18004 requires a lowest-penalty mask but specifies no tie-break.
-  QRity's deterministic reproducibility policy chooses the lowest numeric mask
-  reference among tied minima."
+  QRity's deterministic reproducibility policy chooses the lowest numeric
+  mask reference among tied minima. Candidates are composed and scored as
+  module planes; only the winner materializes the public vector matrix.
+  Canonical input re-validation runs only under
+  `qrity.validation/*canonical-checks?*`."
   [final-message placement]
-  (first
-   (minimum-penalty-candidates
-    (mask-candidates final-message placement))))
+  (require-candidate-input! final-message placement)
+  (let [{:keys [dimension] :as planes}
+        (matrix/placement-planes (:matrix placement))
+        version (:version final-message)
+        error-correction-level (:error-correction-level final-message)
+        scored
+        (mapv (fn [mask-reference]
+                (let [module-plane (matrix/candidate-bit-plane
+                                    planes
+                                    error-correction-level
+                                    mask-reference)
+                      penalties (plane-penalty-components module-plane
+                                                          dimension)]
+                  {:mask-reference mask-reference
+                   :module-plane module-plane
+                   :penalties penalties
+                   :total-penalty (reduce + (vals penalties))}))
+              (range 8))
+        minimum (reduce min (map :total-penalty scored))
+        winner (some #(when (= minimum (:total-penalty %)) %) scored)]
+    {:version version
+     :error-correction-level error-correction-level
+     :mask-reference (:mask-reference winner)
+     :matrix (matrix/plane->bit-matrix (:module-plane winner) dimension)
+     :penalties (:penalties winner)
+     :total-penalty (:total-penalty winner)}))
 
 (s/def ::ordinary-bit-matrix ordinary-bit-matrix?)
 (s/def ::same-color-runs nat-int?)

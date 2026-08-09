@@ -3,6 +3,7 @@
   (:require [clojure.spec.alpha :as s]
             [qrity.metadata :as metadata]
             [qrity.parameters :as parameters]
+            [qrity.plane :as plane]
             [qrity.validation :as validation]))
 
 (def version-1-size 21)
@@ -835,33 +836,91 @@
             (into (map vector top-right version-bits))
             (into (map vector bottom-left version-bits)))))))
 
+(def ^:private mask-flip-plane
+  "The Table 10 flip pattern for one dimension and mask, as a 0/1 plane.
+
+  Pure per-dimension data, memoized like the canonical templates and the
+  placement traversal — the per-module mask predicate then never runs
+  during candidate composition."
+  (memoize
+   (fn [dimension mask-reference]
+     (let [flips? (mask-condition mask-reference)
+           flips (plane/blank (* dimension dimension))]
+       (dotimes [index (* dimension dimension)]
+         (when (flips? (quot index dimension) (rem index dimension))
+           (plane/put! flips index 1)))
+       flips))))
+
+(defn placement-planes
+  "Splits a placed matrix into the planes candidate composition needs.
+
+  `:base` holds every module's unmasked bit (metadata reservations as 0
+  placeholders), `:region` holds 1 exactly where the encoding region is —
+  so one XOR/AND pass per mask reference composes a candidate."
+  [placed-matrix]
+  (let [dimension (count placed-matrix)
+        size (* dimension dimension)
+        base (plane/blank size)
+        region (plane/blank size)]
+    (dotimes [row-index dimension]
+      (let [row (nth placed-matrix row-index)
+            row-start (* row-index dimension)]
+        (dotimes [column-index dimension]
+          (case (nth row column-index)
+            :dark (do (plane/put! base (+ row-start column-index) 1)
+                      (plane/put! region (+ row-start column-index) 1))
+            :light (plane/put! region (+ row-start column-index) 1)
+            :reserved-dark (plane/put! base (+ row-start column-index) 1)
+            (:reserved-light :reserved) nil))))
+    {:dimension dimension
+     :version (inferred-version placed-matrix)
+     :base base
+     :region region}))
+
+(defn candidate-bit-plane
+  "Composes one level-and-mask's final module plane.
+
+  `out = base XOR (region AND flip-mask)` plus the metadata override
+  bytes — no per-module keyword dispatch or mask predicate. The staged
+  apply-mask/resolve-metadata/final-bit composition remains the teaching
+  path and the relational oracle for this."
+  [{:keys [dimension version base region]} error-correction-level
+   mask-reference]
+  (let [size (* dimension dimension)
+        flips (mask-flip-plane dimension mask-reference)
+        composed (plane/blank size)]
+    (dotimes [index size]
+      (plane/put! composed index
+                  (bit-xor (plane/value-at base index)
+                           (bit-and (plane/value-at region index)
+                                    (plane/value-at flips index)))))
+    (reduce (fn [composed [[row column] bit]]
+              (plane/put! composed (+ (* row dimension) column) bit))
+            composed
+            (metadata-overrides dimension
+                                version
+                                error-correction-level
+                                mask-reference))))
+
+(defn plane->bit-matrix
+  "Converts a module plane to the public vector bit matrix."
+  [module-plane dimension]
+  (mapv (fn [row-index]
+          (let [row-start (* row-index dimension)]
+            (mapv #(plane/value-at module-plane (+ row-start %))
+                  (range dimension))))
+        (range dimension)))
+
 (defn candidate-bit-matrix
-  "One pass from a placed matrix to a level-and-mask's final 0/1 matrix.
+  "One level-and-mask's final 0/1 matrix from a placed matrix.
 
   Value-equivalent to `final-bit-matrix` of `resolve-metadata` of
-  `apply-data-mask` — the staged composition remains the walkthrough's
-  teaching path and the relational oracle — but fused, because candidate
-  scoring builds eight of these per symbol and the three full-matrix
-  keyword passes were ~29% of a whole encode. The placed matrix supplies
-  the version; canonical provenance is the caller's obligation, exactly
-  as for the staged functions it replaces."
+  `apply-data-mask`; composed through `placement-planes` and
+  `candidate-bit-plane`. The placed matrix supplies the version;
+  canonical provenance is the caller's obligation, exactly as for the
+  staged functions this composition replaces."
   [placed-matrix error-correction-level mask-reference]
-  (let [dimension (count placed-matrix)
-        version (inferred-version placed-matrix)
-        flips? (mask-condition mask-reference)
-        overrides (metadata-overrides dimension
-                                      version
-                                      error-correction-level
-                                      mask-reference)]
-    (mapv (fn [row-index row]
-            (mapv (fn [column-index cell]
-                    (case cell
-                      :dark (if (flips? row-index column-index) 0 1)
-                      :light (if (flips? row-index column-index) 1 0)
-                      :reserved-dark 1
-                      :reserved-light 0
-                      :reserved (overrides [row-index column-index])))
-                  (range)
-                  row))
-          (range)
-          placed-matrix)))
+  (let [{:keys [dimension] :as planes} (placement-planes placed-matrix)]
+    (plane->bit-matrix
+     (candidate-bit-plane planes error-correction-level mask-reference)
+     dimension)))

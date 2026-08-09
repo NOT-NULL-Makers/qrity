@@ -320,3 +320,26 @@ estimated ~2x encode with V8 gaining more via GC — estimates to be
 verified by interleaved same-session A/Bs on both runtimes, per the
 house method. Trigger unchanged: a consumer for whom current encode
 times are too slow.
+
+## Bit-plane candidates implemented (2026-08-09, measured)
+
+The sketched lever, taken on request. `matrix/placement-planes` splits a
+placed matrix once into base and region planes; `candidate-bit-plane`
+composes each candidate as base XOR (region AND flip-mask) plus metadata
+override bytes, with the eight Table 10 flip patterns memoized per
+dimension alongside the templates and traversal; `mask/select-best-
+candidate` scores the planes through internal strided scorers and
+materializes only the winner's vector matrix. The public vector scorers
+and the mask-candidates path survive unchanged as the relational oracle
+and teaching form; a selection-equivalence test pins the winners
+identical on both sides of the version-information boundary, and the
+staged-composition property continues to pin candidate-bit-matrix. The
+mutation gate was reworded as planned: construction-filled qrity.plane
+values generally, with the close-before line moved accordingly.
+
+Measured, interleaved: JVM selection 44–64 → ~30 ms (~1.5×), Version 25
+end-to-end encode ~51 ms; V8 shipped-artifact encode 143–148 →
+77–79 ms (1.85×, non-overlapping across three rounds) with decode
+147 → 138 ms via the shared reconstruction path. The sketch's ~2×
+estimate, made before building, landed within range on V8 and
+undershot on the JVM — planes pay most where boxing and GC did.

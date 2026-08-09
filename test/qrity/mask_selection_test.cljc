@@ -401,3 +401,25 @@
            (:qrity/error
             (exception-data
              #(mask/penalty-components invalid)))))))
+
+(deftest plane-selection-equals-the-oracle-path
+  ;; select-best-candidate composes and scores module planes; the public
+  ;; mask-candidates path builds and scores vector matrices through the
+  ;; staged oracle machinery. The winners must be identical values -
+  ;; penalties, matrix, and tie-break alike - on both sides of the
+  ;; version-information boundary.
+  (doseq [[version level payload]
+          [[2 :m "86753090000000000000000000000000000"]
+           [9 :h (apply str (take 220 (cycle "0123456789")))]]]
+    (testing (str "version " version " level " level)
+      (let [data-codewords (segment/numeric-data-codewords
+                            payload version level)
+            final-message (message/construct-final-message
+                           data-codewords version level)
+            placement (matrix/place-data
+                       (matrix/function-matrix version)
+                       (:message-bits final-message))]
+        (is (= (first
+                (mask/minimum-penalty-candidates
+                 (mask/mask-candidates final-message placement)))
+               (mask/select-best-candidate final-message placement)))))))
