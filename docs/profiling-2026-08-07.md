@@ -254,3 +254,24 @@ building if either ever ran hot in a browser. Cumulative shipped-
 artifact effect of the matrix/gf session (same-day, ~1 h apart, so the
 session-variance caveat applies): V8 encode ~161–164 → ~144–145 ms
 (~11 %, beyond the observed noise band), decode ~136–139 ms (wash).
+
+## Fresh-profile sweep (2026-08-09, post-optimization)
+
+Both runtimes re-profiled after the performance series. Verdict: the
+obvious tier is empty. Decode (JVM): binarization 66 % with
+block-statistics the top single item (23 %) and 21.5 % self-time in
+boxed equality/arithmetic across the inner loops — a primitive-math
+tuning pass could claim maybe 10–20 % of decode at real readability
+cost (unchecked/hinted loops spread through the binarizer), classified
+as identified-but-gated, not obvious. Decode (V8): cross-check walk
+~16 %, binarize fill ~19 %, block statistics ~8 % — all
+already-optimized sites; the apparent 13.7 % in plane/from-values is
+the profile runner's fixture construction (the validating constructor
+over a megapixel seq), not pipeline cost — the platform adapters
+rightly build via blank/put!. Encode (both runtimes): the profile has
+collapsed onto finding 4's territory — penalty scoring plus the eight
+candidate materializations are now ~65 % of encode on the JVM
+(apply-data-mask alone 29 %) and ~77 % on V8 — so the next real encode
+win is the stable-API-phase redesign (score from the placed matrix and
+the mask condition without materializing candidates), not another
+local optimization. Nothing else stands out on either runtime.
