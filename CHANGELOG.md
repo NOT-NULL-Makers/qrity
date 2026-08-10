@@ -4,6 +4,19 @@ All notable changes to `com.notnullmakers/qrity`. During 0.x, public
 shapes may change between minor versions; every such change is recorded
 here.
 
+## Unreleased
+
+- `qrity.image/interleaved->luminance-image`: builds a luminance image
+  from channel-interleaved octet samples (1/2/3/4 octets per pixel, the
+  layout Canvas `ImageData` and PNG share), for external pixel decoders
+  on runtimes without a platform image API.
+- `qrity.render/render-grey-samples`: renders a module matrix as a
+  greyscale sample map shaped as a PNG encode request, completing the
+  matrix-to-PNG path on those runtimes.
+- The clj-png-adapter git submodule with integration evidence
+  (`clojure -M:png-integration`): PNG in and out with no platform image
+  API, verified on the JVM, Babashka, and nbb.
+
 ## 0.1.0 — 2026-08-10
 
 First published version. Experimental; no ISO/IEC 18004 conformance

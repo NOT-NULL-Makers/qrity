@@ -143,3 +143,40 @@
                 #(render/render-pbm [[1]] 8 quiet-zone))]
       (is (= :pbm (:renderer data)))
       (is (= :invalid-quiet-zone (:reason data))))))
+
+(deftest grey-samples-preserve-modules-scale-and-quiet-zone
+  (testing "a bare checker at scale 1 with no quiet zone"
+    (is (= {:width 2 :height 2 :bit-depth 1 :colour-type :greyscale
+            :samples [0 255 255 0]}
+           (render/render-grey-samples [[1 0] [0 1]] 1 0))))
+  (testing "the quiet zone surrounds the symbol with light pixels"
+    (is (= [255 255 255
+            255 0 255
+            255 255 255]
+           (:samples (render/render-grey-samples [[1]] 1 1)))))
+  (testing "each module becomes an exact square of pixels"
+    (is (= [0 0 255 255
+            0 0 255 255
+            255 255 0 0
+            255 255 0 0]
+           (:samples (render/render-grey-samples [[1 0] [0 1]] 2 0)))))
+  (testing "reflectance reversal covers the quiet zone"
+    (is (= [0 0 0
+            0 255 0
+            0 0 0]
+           (:samples (render/render-grey-samples [[1]] 1 1
+                                                 {:inverted? true})))))
+  (testing "the defaults are scale 8 with the four-module quiet zone"
+    (let [{:keys [width height samples]}
+          (render/render-grey-samples [[1]])]
+      (is (= (* 9 8) width height))
+      (is (= (* 72 72) (count samples))))))
+
+(deftest grey-samples-reject-invalid-input
+  (let [data (exception-data #(render/render-grey-samples [[1 0]]))]
+    (is (= :grey-samples (:renderer data)))
+    (is (= :invalid-matrix (:reason data))))
+  (let [data (exception-data #(render/render-grey-samples [[1]] 0))]
+    (is (= :invalid-pixel-scale (:reason data))))
+  (let [data (exception-data #(render/render-grey-samples [[1]] 8 -1))]
+    (is (= :invalid-quiet-zone (:reason data)))))

@@ -178,3 +178,82 @@
                      :quiet-zone ::quiet-zone
                      :options ::render-options))
   :ret string?)
+
+(defn render-grey-samples
+  "Renders a binary QR module matrix as a greyscale image sample map.
+
+  Returns `{:width n :height n :bit-depth 1 :colour-type :greyscale
+  :samples [...]}` with one octet per pixel, row-major — 0 for dark
+  modules and 255 for light, every module an exact square of
+  `pixel-scale` pixels, and the quiet zone measured in unscaled
+  modules. The defaults are scale 8 with the required four-module QR
+  Code quiet zone.
+
+  The map is plain data, deliberately shaped as a standards-derived PNG
+  encode request: the clj-png-adapter submodule's `encode-octets`
+  accepts it directly, giving runtimes without a platform image API a
+  matrix-to-PNG path, and the 0/255 values stay exactly representable
+  at any of that encoder's supported bit depths. Nothing here depends
+  on any encoder; picking one stays with the caller.
+
+  The optional options map supports `:inverted? true` for a Clause
+  6.3.1 reflectance-reversed (light-on-dark) image; reversal covers the
+  quiet zone too."
+  ([matrix]
+   (render-grey-samples matrix default-pixel-scale default-quiet-zone))
+  ([matrix pixel-scale]
+   (render-grey-samples matrix pixel-scale default-quiet-zone))
+  ([matrix pixel-scale quiet-zone]
+   (render-grey-samples matrix pixel-scale quiet-zone {}))
+  ([matrix pixel-scale quiet-zone {:keys [inverted?]}]
+   (when-not (binary-square-matrix? matrix)
+     (invalid-input! :grey-samples :invalid-matrix matrix))
+   (when-not (pos-int? pixel-scale)
+     (invalid-input! :grey-samples :invalid-pixel-scale pixel-scale))
+   (when-not (nat-int? quiet-zone)
+     (invalid-input! :grey-samples :invalid-quiet-zone quiet-zone))
+   (let [dark (if inverted? 255 0)
+         light (- 255 dark)
+         quiet-pixels (* quiet-zone pixel-scale)
+         side (* (+ (count matrix) (* 2 quiet-zone)) pixel-scale)
+         quiet-row (vec (repeat side light))
+         module-row (fn [row]
+                      (-> (vec (repeat quiet-pixels light))
+                          (into (mapcat (fn [module]
+                                          (repeat pixel-scale
+                                                  (if (= 1 module)
+                                                    dark
+                                                    light))))
+                                row)
+                          (into (repeat quiet-pixels light))))
+         samples (into []
+                       (concat
+                        (apply concat (repeat quiet-pixels quiet-row))
+                        (mapcat (fn [row]
+                                  (apply concat
+                                         (repeat pixel-scale
+                                                 (module-row row))))
+                                matrix)
+                        (apply concat (repeat quiet-pixels quiet-row))))]
+     {:width side
+      :height side
+      :bit-depth 1
+      :colour-type :greyscale
+      :samples samples})))
+
+(s/fdef render-grey-samples
+  :args (s/or :default
+              (s/cat :matrix ::binary-square-matrix)
+              :scaled
+              (s/cat :matrix ::binary-square-matrix
+                     :pixel-scale ::pixel-scale)
+              :configured
+              (s/cat :matrix ::binary-square-matrix
+                     :pixel-scale ::pixel-scale
+                     :quiet-zone ::quiet-zone)
+              :optioned
+              (s/cat :matrix ::binary-square-matrix
+                     :pixel-scale ::pixel-scale
+                     :quiet-zone ::quiet-zone
+                     :options ::render-options))
+  :ret map?)

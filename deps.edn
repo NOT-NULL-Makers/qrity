@@ -40,6 +40,10 @@
   {:extra-paths ["test"]
    :main-opts ["-m" "qrity.decode-runner"]}
 
+  :png-integration
+  {:extra-paths ["integration" "clj-png-adapter/src"]
+   :main-opts ["-m" "qrity.png-integration-runner"]}
+
   :emit-symbol
   {:extra-paths ["test"]
    :main-opts ["-m" "qrity.symbol-emit"]}

@@ -675,10 +675,16 @@ raw interleaved samples out, nothing qrity-specific — and
 directly with the same BT.601 weights the bundled adapters use. A
 296×296 PNG QR symbol decodes end to end through
 `png-adapter.decode/decode-octets` → `interleaved->luminance-image` →
-`qrity.scan/decode-luminance-image` on both runtimes. The adapter is
-its own project with its own fixtures and `javax.imageio` differential
-evidence; neither library depends on the other, and the seam is one
-plain data value.
+`qrity.scan/decode-luminance-image` on both runtimes. The path also runs in reverse:
+`qrity.render/render-grey-samples` renders a module matrix as a
+greyscale sample map deliberately shaped as the adapter's encode
+request, so `png-adapter.encode/encode-octets` turns a QR symbol into
+a 1-bit PNG with no ImageMagick and no platform image API — generate,
+render, encode, decode, and scan complete a full circle on bb, nbb,
+and the JVM (`clojure -M:png-integration`, evidence in
+`integration/`). The adapter is its own project with its own fixtures
+and `javax.imageio` differential evidence; neither library depends on
+the other, and each seam is one plain data value.
 
 ## Goals
 
