@@ -665,8 +665,10 @@ trivially parseable format first (for example `magick photo.png
 photo.pgm`), or decode with a pure-JavaScript npm library under nbb, and
 hand the gray values to `qrity.image/luminance-image`.
 
-For PNG specifically, the [clj-png-adapter](clj-png-adapter/) submodule
-closes the gap without leaving either runtime's ecosystem subset: a
+For PNG specifically, [clj-png-adapter](clj-png-adapter/) — released
+as `com.notnullmakers/clj-png-adapter` on Clojars, referenced here as a
+submodule for co-development — closes the gap without leaving either
+runtime's ecosystem subset: a
 standards-derived PNG decoder (W3C REC-png-3-20250624) that delegates
 only zlib inflation to the platform (`java.util.zip.Inflater`, which
 Babashka ships; Node's `zlib` under nbb). The adapter stays generic —
@@ -681,8 +683,8 @@ greyscale sample map deliberately shaped as the adapter's encode
 request, so `png-adapter.encode/encode-octets` turns a QR symbol into
 a 1-bit PNG with no ImageMagick and no platform image API — generate,
 render, encode, decode, and scan complete a full circle on bb, nbb,
-and the JVM (`clojure -M:png-integration`, evidence in
-`integration/`). The adapter is its own project with its own fixtures
+and the JVM (`clojure -M:png-integration` resolves the released adapter artifact;
+evidence in `integration/`). The adapter is its own project with its own fixtures
 and `javax.imageio` differential evidence; neither library depends on
 the other, and each seam is one plain data value.
 

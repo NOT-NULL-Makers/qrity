@@ -11,7 +11,7 @@
   :deploy
   {:extra-deps {slipset/deps-deploy {:mvn/version "0.2.5"}}
    :main-opts ["-m" "deps-deploy.deps-deploy" "deploy"
-               "target/qrity-0.1.0.jar"]}
+               "target/qrity-0.1.1.jar"]}
 
   :test
   {:extra-paths ["test"]
@@ -41,7 +41,9 @@
    :main-opts ["-m" "qrity.decode-runner"]}
 
   :png-integration
-  {:extra-paths ["integration" "clj-png-adapter/src"]
+  {:extra-paths ["integration"]
+   :extra-deps
+   {com.notnullmakers/clj-png-adapter {:mvn/version "0.1.0"}}
    :main-opts ["-m" "qrity.png-integration-runner"]}
 
   :emit-symbol

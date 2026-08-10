@@ -1,7 +1,10 @@
 (ns qrity.png-integration-test
-  "Integration evidence for the clj-png-adapter seam, run only via the
-  :png-integration alias (or an equivalent bb/nbb classpath) because it
-  needs the submodule's sources on the classpath.
+  "Integration evidence for the clj-png-adapter seam, run via the
+  :png-integration alias, which resolves the released
+  com.notnullmakers/clj-png-adapter artifact — the combination
+  consumers actually get. Babashka consumes the same artifact via
+  -Sdeps; nbb does not read namespaces from jars (measured), so its run
+  puts the submodule's src on the classpath instead.
 
   The full circle uses no platform image API on any runtime: generate a
   symbol, render grey samples, encode PNG octets, decode them back, and
