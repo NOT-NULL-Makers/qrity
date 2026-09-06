@@ -910,15 +910,15 @@ in adapters, not in the encoding namespaces.
 
 ## Authority and source discipline
 
-The primary source currently in this repository is the
-[clean ISO/IEC 18004:2015 export](<resources/docs/ISO_IEC 18004_2015, Third Edition_ Information technology - -- ISO_IEC -- Third, 2015 -- Multiple_ Distributed through American National Standards__isbn13 9789267109657.pdf>).
-An [OCR-derived copy](resources/docs/ISO%20IEC%2018004%202015%20Standard_QR-code_ocr.pdf)
-is also present and can be useful as a secondary search aid. A
-[searchable text extraction](docs/iso-iec-18004-2015.txt) of the clean PDF is included
-for repository search; it is byte-for-byte identical to the previously prepared
-`/tmp/qrity-iso-clean.txt` extraction. The clean PDF remains authoritative. Dense
-tables, formulas, figures, and bit strings still require page-image and independent
-checks before they become project constants.
+QR Code behavior in this project is derived from
+[ISO/IEC 18004:2015](https://www.iso.org/standard/62021.html), used as an external
+normative reference. ISO/IEC publications are copyright-protected; the standard,
+locally acquired PDF or OCR copies, and text extractions are not project artifacts.
+They are excluded from the current tracked tree and must be obtained and used under
+the applicable licence terms. Git ignores these local reference aids, which remain
+non-authoritative; dense tables, formulas, figures, and bit strings must be checked
+against an authorized copy of the standard and independently verified before they
+become project constants.
 
 Every standards-derived constant or rule must carry a nearby clause/table reference
 in a research note, test name, or source comment. The standard itself remains the

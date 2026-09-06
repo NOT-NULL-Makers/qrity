@@ -8,7 +8,9 @@ __pycache__/
 *.swp
 /pom.xml
 
-# ISO/IEC 18004 text extractions: copyrighted, local search aids only,
-# never to be committed or published.
+# ISO/IEC 18004 source documents and derived text: copyrighted, local
+# reference aids only; never to be committed or published.
+/resources/docs/*18004*.pdf
 /resources/docs/qrity-iso-18004.txt
 /resources/docs/qrity-iso-clean.txt
+/docs/iso-iec-18004-2015.txt
